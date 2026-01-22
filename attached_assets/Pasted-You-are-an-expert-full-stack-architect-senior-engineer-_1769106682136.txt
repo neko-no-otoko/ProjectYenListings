@@ -1,0 +1,210 @@
+You are an expert full-stack architect + senior engineer. Build an English-first “Zillow-like” real estate aggregator web app for Japan akiya listings that come from multiple third-party sources. The app must query/ingest listings from the sources below, normalize them into a single schema, deduplicate, geocode, and provide fast search/filter/map UX.
+
+IMPORTANT LEGAL/COMPLIANCE RULES:
+- Do NOT bypass paywalls, logins, CAPTCHAs, rate limits, or anti-bot measures.
+- Respect each site’s Terms of Service and robots.txt.
+- Prefer official APIs, feeds, sitemaps, or permitted scraping patterns. If a source disallows crawling, implement that source as “manual import” or “partner/API only” and mark it as disabled in config.
+- Do not re-host copyrighted photos unless permitted; default to linking/embedding the source image URL with attribution, or store only derived thumbnails if allowed.
+- Add per-source request rate limiting, caching, user-agent identification, backoff, retries, and audit logs.
+
+DATA SOURCES (permitted ingestion only):
+- Akiya Air https://www.akiyaair.com
+- Nippon Tradings International (NTI) https://www.nippontradings.com
+- Akiyaz https://www.akiyaz.io
+- Zero Estate / Minna no 0-en Bukken https://zero.estate
+- AkiyaBanks.com https://www.akiyabanks.com
+- Akiya Japan https://www.akiyajapan.com
+- AkiyaMart https://www.akiya-mart.com
+- All Akiyas https://www.allakiyas.com
+- Old Houses Japan https://www.oldhousesjapan.com
+- Koryoya (Traditional Home Directory) https://koryoya.com/akiya/index.html
+- Akiyahopper https://www.akiyahopper.com
+- Cheap Japan Homes https://www.cheapjapanhomes.com
+
+PRODUCT GOAL:
+A Zillow-like experience for “almost free” habitable akiya homes WITH LAND, in Japan, in English. Users search by criteria; we return a list + map, sortable and filterable, with normalized fields and a computed “Condition score” (1–5) based on listing description signals.
+
+HARD FILTERS (must be enforced):
+- Only abandoned/akiya-style homes (as best as can be inferred from sources/tags/categories).
+- Must be “house + land” (not condo-only). If uncertain, label “Land: Unknown” and exclude by default unless user toggles “include unknown.”
+- Purchase/transfer price MUST be ≤ 150,000 JPY. Listings explicitly “0 yen” / “0円” transfer are allowed.
+- Assume “habitable even if rough” (leaks, cleaning, small utility issues). Exclude only if listing clearly indicates non-habitable / condemned / land-only / no structure / unsafe ruin, or if it violates the “home with land” requirement.
+
+CORE FEATURES (Zillow-like):
+1) Search UI
+- Filters: prefecture, island (Hokkaido/Honshu/Shikoku/Kyushu/Okinawa), city/town, radius-km from a point, max price (default 150,000 JPY), LDK min/max, house size (m²), land size (m²), year built, condition score min, “must have land” toggle, “include unknown land info” toggle, source selection.
+- Sorting: price asc, newest, land size desc, house size desc, best condition score.
+- Map view + list view, with pins and clustering.
+
+2) Listing Detail Page
+- Title, source, link, last-seen timestamp
+- Prefecture + municipality + island
+- Distance to nearest major airport (km) + airport name
+- LDK, house size, land size
+- Price breakdown: transfer/purchase price, estimated taxes, typical brokerage guidance for non-resident, and any listed fees. (Where exact taxes/brokerage cannot be computed precisely, label as “estimate” with assumptions.)
+- English summary generated from original text (Japanese preserved in expandable “Original” section)
+- Photo carousel (hotlink or permitted thumbnails), with attribution
+- Condition score (1–5) + explanation bullets derived from text signals
+
+3) Saved Searches + Alerts (MVP optional, but design for it)
+- Users can save filters and get email alerts when new matches appear (daily digest).
+- Favorites/shortlist.
+
+4) Admin/Operations
+- Source health dashboard: last crawl time, error rate, blocked/disallowed status
+- Re-run ingestion jobs, view raw HTML/text extraction, manage per-source adapters
+- Dedup review queue for near-duplicates
+
+ARCHITECTURE (choose a Replit-friendly stack):
+- Frontend: Next.js (React) + TypeScript + Tailwind
+- Backend: Next.js API routes OR separate Node server (Express/Fastify). Prefer Next.js for simplicity.
+- Database: PostgreSQL with PostGIS for geo queries
+- Search: start with Postgres full-text + trigram; optionally add Meilisearch later
+- Queue/Jobs: BullMQ + Redis (or a simple cron if Redis unavailable). Prefer BullMQ.
+- Hosting: Replit deploy
+- Map: MapLibre (OpenStreetMap) or Mapbox (if API key). Default to MapLibre + OSM tiles.
+- Translation: pluggable provider (DeepL / Google Translate / OpenAI). Must cache translations by hash to control cost.
+- Geocoding: prefer coordinates from listing. If missing, geocode address using Nominatim (respect usage policy) or Mapbox/Google if keys exist. Cache results.
+
+DATA MODEL (normalized schema):
+Implement these tables (Postgres + PostGIS):
+1) sources
+- id, name, base_url, enabled, crawl_policy_json, rate_limit_per_min, notes
+
+2) raw_listings
+- id, source_id, source_listing_id (string), source_url, fetched_at, raw_html (optional), raw_text, raw_json (optional), http_status, etag, hash
+
+3) listings (normalized)
+- id (uuid)
+- source_id, source_url, source_listing_id
+- title_en, title_original
+- description_en, description_original
+- prefecture, municipality, locality, island
+- address_original, address_en
+- lat, lon (geography point)
+- nearest_airport_iata, nearest_airport_name, nearest_airport_km
+- price_jpy (int)  // transfer/purchase price used for filtering
+- price_type (enum: transfer_fee, purchase_price, unknown)
+- other_fees_json (cleaning fees, registration, etc)
+- ldk (string), bedrooms (int nullable)
+- house_sqm (float nullable)
+- land_sqm (float nullable)
+- has_land (boolean nullable) // true/false/unknown
+- year_built (int nullable)
+- condition_score (int 1-5)
+- condition_reasons_en (text[])
+- photos (jsonb array of {url, caption, attribution})
+- tags (text[])
+- listed_at (date nullable), last_seen_at (timestamp)
+- status (enum: active, inactive, unknown)
+
+4) listing_dedup
+- id, listing_id_a, listing_id_b, similarity_score, decision, decided_at
+
+5) airports (seed data)
+- iata, name, lat, lon, country, is_major (boolean)
+Seed via an open dataset (e.g., OurAirports/OpenFlights) checked into repo.
+
+NORMALIZATION / INGESTION PIPELINE:
+For each enabled source, implement a “Source Adapter” module:
+- discover(): returns candidate listing URLs (via sitemap/RSS/category pages if allowed)
+- fetch(url): downloads HTML with polite headers, caching, backoff
+- extract(raw): parses to structured fields (title, description, price, location, size, photos, tags). Use Cheerio for HTML parsing.
+- normalize(extracted): maps fields to normalized schema and computes:
+  - island from prefecture mapping table
+  - has_land true/false/unknown from keywords (土地, 敷地, land area present, “宅地” etc.)
+  - price_jpy parsed from “円 / yen / 0円 / 0 yen”
+  - ldk parsed from strings (e.g., 2LDK)
+  - condition_score from rules + optional LLM explanation step
+- translate(): generate English title/summary/address if original is Japanese; cache by hash
+- geocode(): if no coordinates, geocode; cache; store lat/lon
+- nearest_airport(): compute haversine distance to nearest airport where is_major=true
+- upsert listing and mark last_seen_at
+
+DEDUP STRATEGY:
+- Use a fingerprint hash of (normalized address + house_sqm + land_sqm + price_jpy + lat/lon rounded) + title similarity.
+- Use trigram similarity on title + address and distance threshold (e.g., within 250m).
+- Keep canonical listing but retain per-source variants.
+
+CONDITION SCORE (1–5) REQUIREMENTS:
+Implement a deterministic baseline scorer (no LLM needed):
+- 5 = move-in ready / renovated / “good condition”
+- 4 = livable, minor repairs/cleaning
+- 3 = needs work (leaks mentioned, utilities issues) but still framed as usable
+- 2 = major repairs, but still a standing home
+- 1 = ruin/unsafe/condemned (exclude by default as “not habitable”)
+Then optionally add an LLM enrichment step that writes:
+- description_en summary (3–6 sentences)
+- condition_reasons_en bullet list
+The LLM prompt must NEVER invent facts; it must only rephrase and translate. It must output JSON.
+
+USER EXPERIENCE (English-first):
+- Everything defaults to English UI and English fields.
+- Always show “Original Japanese” collapsible sections.
+- Prices shown in JPY primarily; optionally show USD conversion with “approx” using daily cached exchange rates (optional).
+
+SEARCH RESULTS OUTPUT:
+The UI should display cards with:
+- photo thumbnail, title, prefecture/municipality, island
+- price (JPY), LDK, house_sqm, land_sqm
+- condition score
+- nearest major airport + km
+- source icons + last_seen_at
+Include map pins.
+
+API ENDPOINTS (internal):
+- GET /api/search?filters...
+- GET /api/listings/:id
+- POST /api/admin/reingest?source=...
+- GET /api/admin/health
+- POST /api/saved-searches (optional)
+Design typed DTOs.
+
+MVP MILESTONES:
+Phase 1 (must ship):
+- Next.js app with search form, results list, listing details
+- Postgres schema + migrations
+- 2 source adapters fully working (choose the easiest allowed sources first)
+- Translation cache + airport distance + hard filters enforced
+
+Phase 2:
+- Add remaining adapters where permitted
+- Saved searches + email alerts
+- Better dedup + admin review tools
+- Meilisearch for speed
+
+ENGINEERING REQUIREMENTS:
+- Use TypeScript everywhere.
+- Provide a clean repo structure:
+  /src
+    /app (Next.js)
+    /lib
+      /db
+      /adapters
+      /ingest
+      /geo
+      /translate
+      /dedup
+      /scoring
+  /scripts (seed airports, run ingest)
+  /migrations
+- Environment variables template (.env.example)
+- Strong logging (pino) and job telemetry.
+- Unit tests for: price parser, LDK parser, prefecture->island mapping, haversine, condition scoring.
+- Add a “source config” file so new sources can be toggled without code changes.
+
+DELIVERABLES:
+1) Working Replit project that runs end-to-end locally on Replit.
+2) Database migrations + seed script for airports.
+3) At least 2 ingestion adapters implemented with polite crawling.
+4) Search UI + map + listing detail page.
+5) Clear README with setup steps and operational notes (rate limits, ToS compliance).
+
+START BY:
+- Proposing the folder structure and DB schema (SQL migrations).
+- Implement airport seed + haversine nearest airport function.
+- Implement the normalized Listing type + filter enforcement.
+- Then implement one adapter end-to-end, then a second.
+- Then implement search UI and map pins.
+Return code in small, copyable chunks with exact filenames and commands.
+When you need keys (DB URL, translation provider, map tiles), use .env placeholders and provide alternatives that work without paid keys.
