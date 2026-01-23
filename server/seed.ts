@@ -46,6 +46,7 @@ const SAMPLE_LISTINGS = [
     ],
     tags: ["kominka", "garden", "rural", "traditional"],
     status: "active" as const,
+    sourceUrl: "https://www.akiya-athome.jp/buy/niigata/",
   },
   {
     titleEn: "Mountain View Cottage in Nagano",
@@ -72,6 +73,7 @@ const SAMPLE_LISTINGS = [
     ],
     tags: ["mountain", "ski-access", "renovated", "nature"],
     status: "active" as const,
+    sourceUrl: "https://www.akiya-athome.jp/buy/nagano/",
   },
   {
     titleEn: "Seaside House in Shikoku",
@@ -98,6 +100,7 @@ const SAMPLE_LISTINGS = [
     ],
     tags: ["seaside", "beach-access", "ocean-view", "coastal"],
     status: "active" as const,
+    sourceUrl: "https://www.akiya-athome.jp/buy/kochi/",
   },
   {
     titleEn: "Rural Retreat in Tohoku Region",
@@ -124,6 +127,7 @@ const SAMPLE_LISTINGS = [
     ],
     tags: ["farming", "large-land", "workshop", "rural"],
     status: "active" as const,
+    sourceUrl: "https://www.akiya-athome.jp/buy/akita/",
   },
   {
     titleEn: "Historic House in Shimane Prefecture",
@@ -150,6 +154,7 @@ const SAMPLE_LISTINGS = [
     ],
     tags: ["historic", "meiji-era", "renovation-project", "traditional"],
     status: "active" as const,
+    sourceUrl: "https://www.akiya-athome.jp/buy/shimane/",
   },
   {
     titleEn: "Compact House Near Hot Springs",
@@ -176,6 +181,7 @@ const SAMPLE_LISTINGS = [
     ],
     tags: ["onsen", "hot-springs", "compact", "garden"],
     status: "active" as const,
+    sourceUrl: "https://www.akiya-athome.jp/buy/oita/",
   },
   {
     titleEn: "Forest Cabin in Hokkaido",
@@ -202,6 +208,7 @@ const SAMPLE_LISTINGS = [
     ],
     tags: ["forest", "cabin", "nature", "privacy", "large-land"],
     status: "active" as const,
+    sourceUrl: "https://www.akiya-athome.jp/buy/hokkaido/",
   },
   {
     titleEn: "Renovated Townhouse in Yamaguchi",
@@ -228,6 +235,7 @@ const SAMPLE_LISTINGS = [
     ],
     tags: ["machiya", "renovated", "historic", "courtyard"],
     status: "active" as const,
+    sourceUrl: "https://www.akiya-athome.jp/buy/yamaguchi/",
   },
 ];
 
