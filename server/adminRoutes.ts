@@ -252,6 +252,26 @@ adminRouter.get("/partner-config", async (_req, res) => {
   }
 });
 
+adminRouter.get("/test-lock", async (req, res) => {
+  const jobName = (req.query.job as string) || "test_lock_job";
+  const holdSeconds = parseInt(req.query.hold as string) || 10;
+  
+  const { tryJobLock, releaseJobLock } = await import("./lib/ingestion/jobLock");
+  
+  const acquired = await tryJobLock(jobName);
+  
+  if (!acquired) {
+    return res.json({ locked: false, message: "Lock not acquired - another instance is running" });
+  }
+  
+  res.json({ locked: true, message: `Lock acquired, holding for ${holdSeconds} seconds` });
+  
+  setTimeout(async () => {
+    await releaseJobLock(jobName);
+    console.log(`[Test Lock] Released lock for ${jobName}`);
+  }, holdSeconds * 1000);
+});
+
 adminRouter.get("/verify-schema", async (_req, res) => {
   try {
     const syncCursorsCheck = await db.execute(sql`

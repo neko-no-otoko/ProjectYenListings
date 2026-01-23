@@ -2,6 +2,7 @@ import type { Connector, ConnectorStatus, FetchResult } from "../types";
 import type { InsertCkanDataset, InsertCkanResource } from "@shared/schema";
 import { getSearchCkanJpClient, CkanClient } from "./ckanClient";
 import { upsertCkanDataset, upsertCkanResource, createIngestionLog, updateIngestionLog } from "../../ingestion/upsert";
+import { withJobLock } from "../../ingestion/jobLock";
 import { CONNECTOR_NAMES } from "../index";
 
 const AKIYA_KEYWORDS = [
@@ -61,117 +62,134 @@ export class CkanDiscoveryConnector implements Connector {
   }
 
   async discoverDatasets(keywords: string[] = AKIYA_KEYWORDS): Promise<FetchResult<InsertCkanDataset>> {
-    const logId = await createIngestionLog({
-      connectorName: this.name,
-      jobType: "discovery",
-      status: "running",
-    });
+    const lockResult = await withJobLock(this.name, async () => {
+      const logId = await createIngestionLog({
+        connectorName: this.name,
+        jobType: "discovery",
+        status: "running",
+      });
 
-    try {
-      const allDatasets: InsertCkanDataset[] = [];
-      const seenPackageIds = new Set<string>();
+      try {
+        const allDatasets: InsertCkanDataset[] = [];
+        const seenPackageIds = new Set<string>();
 
-      for (const keyword of keywords) {
-        let start = 0;
-        const rows = 100;
-        let hasMore = true;
+        for (const keyword of keywords) {
+          let start = 0;
+          const rows = 100;
+          let hasMore = true;
 
-        while (hasMore) {
-          const result = await this.client.packageSearch(keyword, { rows, start });
+          while (hasMore) {
+            const result = await this.client.packageSearch(keyword, { rows, start });
 
-          if (!result.success || !result.data) {
-            console.log(`[CKAN Discovery] Search failed for "${keyword}": ${result.error}`);
-            break;
+            if (!result.success || !result.data) {
+              console.log(`[CKAN Discovery] Search failed for "${keyword}": ${result.error}`);
+              break;
+            }
+
+            for (const pkg of result.data.results) {
+              if (seenPackageIds.has(pkg.id)) continue;
+              seenPackageIds.add(pkg.id);
+
+              const licenseId = (pkg.license_id || "").toLowerCase();
+              const isPermissive = PERMISSIVE_LICENSES.some(l => licenseId.includes(l)) || licenseId === "";
+              const status = isPermissive ? "active" : "review_required";
+
+              const dataset: InsertCkanDataset = {
+                ckanInstanceBaseUrl: this.client.getBaseUrl(),
+                packageId: pkg.id,
+                packageName: pkg.name,
+                title: pkg.title,
+                organization: pkg.organization?.title || pkg.organization?.name,
+                licenseId: pkg.license_id,
+                licenseTitle: pkg.license_title,
+                tags: pkg.tags?.map(t => t.name) || [],
+                notes: pkg.notes,
+                status: status as "active" | "review_required" | "denied" | "inactive",
+              };
+
+              allDatasets.push(dataset);
+            }
+
+            hasMore = result.data.results.length === rows && start + rows < result.data.count;
+            start += rows;
           }
-
-          for (const pkg of result.data.results) {
-            if (seenPackageIds.has(pkg.id)) continue;
-            seenPackageIds.add(pkg.id);
-
-            const licenseId = (pkg.license_id || "").toLowerCase();
-            const isPermissive = PERMISSIVE_LICENSES.some(l => licenseId.includes(l)) || licenseId === "";
-            const status = isPermissive ? "active" : "review_required";
-
-            const dataset: InsertCkanDataset = {
-              ckanInstanceBaseUrl: this.client.getBaseUrl(),
-              packageId: pkg.id,
-              packageName: pkg.name,
-              title: pkg.title,
-              organization: pkg.organization?.title || pkg.organization?.name,
-              licenseId: pkg.license_id,
-              licenseTitle: pkg.license_title,
-              tags: pkg.tags?.map(t => t.name) || [],
-              notes: pkg.notes,
-              status: status as "active" | "review_required" | "denied" | "inactive",
-            };
-
-            allDatasets.push(dataset);
-          }
-
-          hasMore = result.data.results.length === rows && start + rows < result.data.count;
-          start += rows;
         }
-      }
 
-      this.itemsFetched = allDatasets.length;
-      let upserted = 0;
+        this.itemsFetched = allDatasets.length;
+        let upserted = 0;
 
-      for (const dataset of allDatasets) {
-        const result = await upsertCkanDataset(dataset);
-        if (result.isNew) upserted++;
+        for (const dataset of allDatasets) {
+          const result = await upsertCkanDataset(dataset);
+          if (result.isNew) upserted++;
 
-        if (dataset.status === "active") {
-          const pkgResult = await this.client.packageShow(dataset.packageId);
-          if (pkgResult.success && pkgResult.data?.resources) {
-            for (const res of pkgResult.data.resources) {
-              const format = (res.format || "").toLowerCase();
-              if (["csv", "json", "xlsx"].includes(format)) {
-                const resource: InsertCkanResource = {
-                  ckanDatasetId: result.id,
-                  resourceId: res.id,
-                  format: res.format,
-                  downloadUrl: res.url,
-                };
-                await upsertCkanResource(resource);
+          if (dataset.status === "active") {
+            const pkgResult = await this.client.packageShow(dataset.packageId);
+            if (pkgResult.success && pkgResult.data?.resources) {
+              for (const res of pkgResult.data.resources) {
+                const format = (res.format || "").toLowerCase();
+                if (["csv", "json", "xlsx"].includes(format)) {
+                  const resource: InsertCkanResource = {
+                    ckanDatasetId: result.id,
+                    resourceId: res.id,
+                    format: res.format,
+                    downloadUrl: res.url,
+                  };
+                  await upsertCkanResource(resource);
+                }
               }
             }
           }
         }
+
+        this.itemsUpserted = upserted;
+        this.lastRunAt = new Date();
+
+        await updateIngestionLog(logId, {
+          completedAt: new Date(),
+          status: "completed",
+          itemsFetched: this.itemsFetched,
+          itemsUpserted: this.itemsUpserted,
+        });
+
+        return {
+          success: true,
+          data: allDatasets,
+          metadata: {
+            keywordsSearched: keywords.length,
+            totalFound: allDatasets.length,
+            upserted,
+          },
+        } as FetchResult<InsertCkanDataset>;
+      } catch (error) {
+        this.lastError = (error as Error).message;
+        
+        await updateIngestionLog(logId, {
+          completedAt: new Date(),
+          status: "failed",
+          errorMessage: this.lastError,
+        });
+
+        return {
+          success: false,
+          error: this.lastError,
+        } as FetchResult<InsertCkanDataset>;
       }
+    });
 
-      this.itemsUpserted = upserted;
-      this.lastRunAt = new Date();
-
-      await updateIngestionLog(logId, {
-        completedAt: new Date(),
-        status: "completed",
-        itemsFetched: this.itemsFetched,
-        itemsUpserted: this.itemsUpserted,
+    if (lockResult.skipped) {
+      await createIngestionLog({
+        connectorName: this.name,
+        jobType: "discovery",
+        status: "skipped_locked",
       });
-
-      return {
-        success: true,
-        data: allDatasets,
-        metadata: {
-          keywordsSearched: keywords.length,
-          totalFound: allDatasets.length,
-          upserted,
-        },
-      };
-    } catch (error) {
-      this.lastError = (error as Error).message;
       
-      await updateIngestionLog(logId, {
-        completedAt: new Date(),
-        status: "failed",
-        errorMessage: this.lastError,
-      });
-
       return {
         success: false,
-        error: this.lastError,
+        error: "Job already running (lock not acquired)",
       };
     }
+
+    return lockResult.result!;
   }
 }
 
