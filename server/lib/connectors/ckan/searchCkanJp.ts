@@ -108,6 +108,24 @@ export class CkanDiscoveryConnector implements Connector {
               };
 
               allDatasets.push(dataset);
+              
+              if (status === "active" && pkg.resources) {
+                const datasetResult = await upsertCkanDataset(dataset);
+                
+                for (const res of pkg.resources) {
+                  const format = (res.format || "").toLowerCase();
+                  if (["csv", "json", "xlsx"].includes(format)) {
+                    const resource: InsertCkanResource = {
+                      ckanDatasetId: datasetResult.id,
+                      resourceId: res.id,
+                      format: res.format,
+                      downloadUrl: res.url,
+                    };
+                    await upsertCkanResource(resource);
+                    console.log(`[CKAN Discovery] Found resource: ${res.name || res.id} (${format})`);
+                  }
+                }
+              }
             }
 
             hasMore = result.data.results.length === rows && start + rows < result.data.count;
@@ -121,24 +139,6 @@ export class CkanDiscoveryConnector implements Connector {
         for (const dataset of allDatasets) {
           const result = await upsertCkanDataset(dataset);
           if (result.isNew) upserted++;
-
-          if (dataset.status === "active") {
-            const pkgResult = await this.client.packageShow(dataset.packageId);
-            if (pkgResult.success && pkgResult.data?.resources) {
-              for (const res of pkgResult.data.resources) {
-                const format = (res.format || "").toLowerCase();
-                if (["csv", "json", "xlsx"].includes(format)) {
-                  const resource: InsertCkanResource = {
-                    ckanDatasetId: result.id,
-                    resourceId: res.id,
-                    format: res.format,
-                    downloadUrl: res.url,
-                  };
-                  await upsertCkanResource(resource);
-                }
-              }
-            }
-          }
         }
 
         this.itemsUpserted = upserted;

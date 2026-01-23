@@ -13,6 +13,7 @@ import { syncCursors } from "@shared/schema";
 import { getConnectorStatuses } from "./lib/connectors/index";
 import { runJob, getScheduledJobs, getJobStatus, startScheduler, stopScheduler } from "./lib/ingestion/scheduler";
 import { runSyncListingsJob, previewSyncListings } from "./lib/ingestion/syncListings";
+import { getSearchCkanJpClient } from "./lib/connectors/ckan/ckanClient";
 
 export const adminRouter = Router();
 
@@ -41,6 +42,20 @@ function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 adminRouter.use(requireAdminAuth);
+
+adminRouter.get("/ckan/test", async (_req, res) => {
+  try {
+    const client = getSearchCkanJpClient();
+    const result = await client.testConnectivity();
+    
+    res.json({
+      baseUrl: client.getBaseUrl(),
+      ...result,
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
 
 adminRouter.get("/status", async (_req, res) => {
   try {

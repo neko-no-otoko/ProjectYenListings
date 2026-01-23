@@ -60,7 +60,11 @@ export class HttpClient {
     params?: Record<string, string | number | boolean | undefined>,
     customHeaders?: Record<string, string>
   ): Promise<HttpResponse<T>> {
-    const url = new URL(path, this.config.baseUrl);
+    const cleanPath = path.replace(/^\/+/, "");
+    const baseWithSlash = this.config.baseUrl.endsWith("/") 
+      ? this.config.baseUrl 
+      : `${this.config.baseUrl}/`;
+    const url = new URL(cleanPath, baseWithSlash);
     
     if (params) {
       Object.entries(params).forEach(([key, value]) => {

@@ -8,12 +8,20 @@ export interface CkanApiResponse<T> {
   error?: { message: string; __type: string };
 }
 
+export interface CkanConnectivityResult {
+  success: boolean;
+  error?: string;
+  responsePreview?: string;
+}
+
 export class CkanClient {
   private readonly client: HttpClient;
   private readonly baseUrl: string;
+  private readonly isBackendApi: boolean;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
+    this.isBackendApi = this.baseUrl.includes("/backend/api");
     this.client = new HttpClient({
       baseUrl: this.baseUrl,
       rateLimitPerMin: getEnvNumber("INGESTION_RATE_LIMIT_PER_HOST", 60),
@@ -21,6 +29,76 @@ export class CkanClient {
       retryDelayMs: 1000,
       timeout: 30000,
     });
+  }
+
+  private getPath(action: string): string {
+    if (this.isBackendApi) {
+      return `/${action}`;
+    }
+    return `/api/3/action/${action}`;
+  }
+
+  async testConnectivity(): Promise<CkanConnectivityResult> {
+    const path = this.getPath("package_list");
+    const response = await this.client.get<CkanApiResponse<string[]>>(
+      path,
+      { rows: 1 }
+    );
+
+    if (!response.success) {
+      const isHtml = response.error?.includes("<!DOCTYPE") || 
+                     response.error?.includes("<html") ||
+                     response.error?.includes("Nuxt");
+      
+      if (isHtml) {
+        return {
+          success: false,
+          error: "CKAN base URL points to frontend, not backend API. Expected: https://search.ckan.jp/backend/api",
+          responsePreview: response.error?.substring(0, 200),
+        };
+      }
+      
+      return {
+        success: false,
+        error: response.error ?? "Failed to connect to CKAN API",
+        responsePreview: response.error?.substring(0, 200),
+      };
+    }
+
+    if (!response.data?.success) {
+      return {
+        success: false,
+        error: response.data?.error?.message ?? "API returned success=false",
+        responsePreview: JSON.stringify(response.data).substring(0, 200),
+      };
+    }
+
+    return {
+      success: true,
+      responsePreview: JSON.stringify(response.data).substring(0, 200),
+    };
+  }
+
+  async packageList(options?: { rows?: number }): Promise<{ success: boolean; data?: string[]; error?: string }> {
+    const params: Record<string, string | number> = {};
+    if (options?.rows) {
+      params.rows = options.rows;
+    }
+
+    const response = await this.client.get<CkanApiResponse<string[]>>(
+      this.getPath("package_list"),
+      params
+    );
+
+    if (!response.success || !response.data) {
+      return { success: false, error: response.error ?? "Failed to list packages" };
+    }
+
+    if (!response.data.success) {
+      return { success: false, error: response.data.error?.message ?? "API error" };
+    }
+
+    return { success: true, data: response.data.result };
   }
 
   async packageSearch(
@@ -38,7 +116,7 @@ export class CkanClient {
     }
 
     const response = await this.client.get<CkanApiResponse<CkanPackageSearchResult>>(
-      "/api/3/action/package_search",
+      this.getPath("package_search"),
       params
     );
 
@@ -55,7 +133,7 @@ export class CkanClient {
 
   async packageShow(packageId: string): Promise<{ success: boolean; data?: CkanPackage; error?: string }> {
     const response = await this.client.get<CkanApiResponse<CkanPackage>>(
-      "/api/3/action/package_show",
+      this.getPath("package_show"),
       { id: packageId }
     );
 
@@ -72,7 +150,7 @@ export class CkanClient {
 
   async resourceShow(resourceId: string): Promise<{ success: boolean; data?: CkanResourceMeta; error?: string }> {
     const response = await this.client.get<CkanApiResponse<CkanResourceMeta>>(
-      "/api/3/action/resource_show",
+      this.getPath("resource_show"),
       { id: resourceId }
     );
 
@@ -96,12 +174,18 @@ export class CkanClient {
   }
 }
 
+const CKAN_BACKEND_API_URL = "https://search.ckan.jp/backend/api";
+
 let searchCkanJpClient: CkanClient | null = null;
 
 export function getSearchCkanJpClient(): CkanClient {
   if (!searchCkanJpClient) {
-    const baseUrl = getEnvString("CKAN_SEARCH_BASE_URL", "https://search.ckan.jp");
+    const baseUrl = getEnvString("CKAN_SEARCH_BASE_URL", CKAN_BACKEND_API_URL);
     searchCkanJpClient = new CkanClient(baseUrl);
   }
   return searchCkanJpClient;
+}
+
+export function resetSearchCkanJpClient(): void {
+  searchCkanJpClient = null;
 }
