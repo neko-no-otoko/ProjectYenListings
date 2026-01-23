@@ -53,6 +53,7 @@ Core entities defined in `shared/schema.ts`:
 #### Ingestion Pipeline Tables (added January 2026)
 - **property_entities** - Deduplicated property records with canonical addresses
 - **listing_variants** - Source-specific listing data linked to property entities
+  - Indexes: `(propertyEntityId, lastSeenAt DESC)`, `(status, lastSeenAt DESC)`
 - **raw_captures** - Audit log of raw data fetched from sources
 - **ckan_datasets** - Tracked CKAN datasets from municipal akiya banks
 - **ckan_resources** - Individual resources (CSV/JSON files) within datasets
@@ -60,6 +61,11 @@ Core entities defined in `shared/schema.ts`:
 - **partner_sources_config** - Configuration for B2B partner feeds
 - **translation_cache** - Hash-based cache for JP→EN translations
 - **ingestion_logs** - Job execution logs for monitoring
+- **sync_cursors** - Cursor tracking for incremental sync jobs (name PK, cursorTs timestamptz)
+
+#### Canonical Display Identity
+- **listings.id == propertyEntities.id** - Same UUID links display layer to ingestion layer
+- **listings.primaryVariantId** - Nullable UUID for debugging which variant was used
 
 Key listing fields include prefecture, municipality, island, coordinates, price, LDK layout, house/land sizes, year built, condition score, and multilingual content (English + Japanese).
 

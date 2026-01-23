@@ -9,6 +9,7 @@ import {
   partnerSourcesConfig 
 } from "@shared/schema";
 import { eq, desc, sql } from "drizzle-orm";
+import { syncCursors } from "@shared/schema";
 import { getConnectorStatuses } from "./lib/connectors/index";
 import { runJob, getScheduledJobs, getJobStatus, startScheduler, stopScheduler } from "./lib/ingestion/scheduler";
 
@@ -246,6 +247,45 @@ adminRouter.get("/partner-config", async (_req, res) => {
       .from(partnerSourcesConfig);
     
     res.json({ configs });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.get("/verify-schema", async (_req, res) => {
+  try {
+    const syncCursorsCheck = await db.execute(sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'sync_cursors'
+      ) as exists
+    `);
+    
+    const primaryVariantIdCheck = await db.execute(sql`
+      SELECT EXISTS (
+        SELECT FROM information_schema.columns 
+        WHERE table_name = 'listings' AND column_name = 'primary_variant_id'
+      ) as exists
+    `);
+    
+    const indexesCheck = await db.execute(sql`
+      SELECT indexname FROM pg_indexes 
+      WHERE tablename = 'listing_variants' 
+      AND indexname IN (
+        'listing_variants_property_entity_last_seen_idx',
+        'listing_variants_status_last_seen_idx'
+      )
+    `);
+    
+    res.json({
+      syncCursorsExists: syncCursorsCheck.rows[0]?.exists === true,
+      listingsPrimaryVariantIdExists: primaryVariantIdCheck.rows[0]?.exists === true,
+      indexes: indexesCheck.rows.map((r) => (r as Record<string, unknown>).indexname as string),
+      allChecksPass: 
+        syncCursorsCheck.rows[0]?.exists === true &&
+        primaryVariantIdCheck.rows[0]?.exists === true &&
+        indexesCheck.rows.length === 2
+    });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

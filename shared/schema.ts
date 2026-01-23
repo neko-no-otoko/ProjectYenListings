@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, boolean, timestamp, jsonb, pgEnum, date, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, boolean, timestamp, jsonb, pgEnum, date, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -32,6 +32,7 @@ export const airports = pgTable("airports", {
 
 export const listings = pgTable("listings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  primaryVariantId: varchar("primary_variant_id"),
   sourceId: varchar("source_id").references(() => sources.id),
   sourceUrl: text("source_url"),
   sourceListingId: text("source_listing_id"),
@@ -115,7 +116,12 @@ export const listingVariants = pgTable("listing_variants", {
   lastSeenAt: timestamp("last_seen_at").defaultNow(),
   status: listingStatusEnum("status").default("active"),
   translateStatus: translateStatusEnum("translate_status").default("pending"),
-});
+}, (table) => ({
+  propertyEntityLastSeenIdx: index("listing_variants_property_entity_last_seen_idx")
+    .on(table.propertyEntityId, table.lastSeenAt),
+  statusLastSeenIdx: index("listing_variants_status_last_seen_idx")
+    .on(table.status, table.lastSeenAt),
+}));
 
 export const ckanDatasets = pgTable("ckan_datasets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -201,6 +207,15 @@ export const ingestionLogs = pgTable("ingestion_logs", {
   errorMessage: text("error_message"),
   metadata: jsonb("metadata"),
 });
+
+export const syncCursors = pgTable("sync_cursors", {
+  name: text("name").primaryKey(),
+  cursorTs: timestamp("cursor_ts", { withTimezone: true }).notNull(),
+});
+
+export const insertSyncCursorSchema = createInsertSchema(syncCursors);
+export type SyncCursor = typeof syncCursors.$inferSelect;
+export type InsertSyncCursor = z.infer<typeof insertSyncCursorSchema>;
 
 export const listingsRelations = relations(listings, ({ one }) => ({
   source: one(sources, {
