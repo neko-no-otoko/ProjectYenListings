@@ -1,0 +1,321 @@
+```text
+You are Replit Agent. The app already has an MVP UI + DB schema + fake listings. Your task is to ADD the “extra sources” pipeline (Options 1–4) with production-grade connector architecture, ingestion jobs, dedupe/entity resolution, and English translation.
+
+SCOPE: Implement ONLY these external sources (no akiya aggregators in this task)
+1) MLIT Real Estate Information Library (“reinfolib”) APIs (government data, not listings) — enrich + comps
+2) Municipal Open Data portals using CKAN (CSV/JSON datasets that may contain akiya bank listings)
+3) search.ckan.jp cross-catalog CKAN API (discovery layer for option #2)
+4) Partner / B2B listing feeds/APIs (LIFULL HOME’S Public API; AtHome municipal linkage/feeds) — implement connector skeletons + secure credential handling; support “licensed feed ingestion” even if we don’t have keys yet.
+
+NON-NEGOTIABLE COMPLIANCE
+- Do not bypass paywalls, logins, CAPTCHAs, or disallowed crawling.
+- Only pull from public APIs/feeds and CKAN open-data resources.
+- For partner APIs/feeds: require credentials + explicit enablement flag. Default disabled.
+- Store provenance: source, dataset, license/terms field (when provided), retrieval timestamp, and raw payload references.
+- Do NOT rehost copyrighted photos from partner feeds unless license explicitly allows. Store URLs + attribution only.
+
+ARCHITECTURE: CONNECTOR + JOB PIPELINE
+Add a new ingestion subsystem with:
+A) Connector Interface (all sources implement the same contract)
+B) Job Orchestrator (scheduled sync + backfills)
+C) Normalization to the existing “listings” schema (or create companion tables where the data is not a listing)
+D) Dedupe / entity resolution (property-level identity across multiple sources)
+E) Translation pipeline (JP -> EN) with cache + auditability
+
+REPO STRUCTURE (add these folders/files)
+- /src/lib/connectors/
+  - types.ts                 # Connector interfaces + shared DTOs
+  - index.ts                 # connector registry + enable flags
+  - reinfolib/               # option 1
+    - client.ts              # HTTP client wrapper w/ key, retries, rate limiting
+    - mapper.ts              # map API outputs to internal tables
+    - jobs.ts                # job runners
+  - ckan/                    # options 2 & 3
+    - searchCkanJp.ts         # discovery via search.ckan.jp API
+    - ckanClient.ts           # generic CKAN client (package_show, resource_show, resource download)
+    - datasetParsers.ts       # CSV/JSON parsers + schema sniffing
+    - mapper.ts               # normalize municipal akiya datasets -> listing variants
+    - jobs.ts
+  - partners/                # option 4
+    - lifull/
+      - oauth.ts              # OAuth2 client credentials + token cache
+      - client.ts             # API client (enabled only w/ creds)
+      - mapper.ts
+      - jobs.ts
+    - athome/
+      - feed.ts               # “licensed feed ingestion” (HTTP/S3/FTP configurable)
+      - mapper.ts
+      - jobs.ts
+- /src/lib/ingestion/
+  - scheduler.ts              # schedule definitions (cron)
+  - queue.ts                  # BullMQ/Redis OR fallback in-process queue used in MVP
+  - upsert.ts                 # idempotent upserts + raw capture logging
+  - dedupe.ts                 # entity resolution logic
+- /src/lib/translate/
+  - provider.ts               # OpenAI/DeepL/Google adapter interface
+  - cache.ts                  # hash-based cache
+  - jobs.ts                   # translate missing fields for listings/entities
+- /prisma/migrations/...      # schema additions below
+
+DB SCHEMA ADDITIONS (Prisma + migrations)
+You already have listings. Add:
+1) property_entities (canonical “this physical property” record)
+- id (uuid)
+- canonical_lat, canonical_lon (nullable)
+- canonical_address_jp, canonical_address_en (nullable)
+- prefecture, municipality, locality (nullable)
+- confidence_score (0-1)
+- created_at, updated_at
+
+2) listing_variants (one per source record; links to a property_entity)
+- id (uuid)
+- property_entity_id (fk)
+- source_type (enum: reinfolib_txn, ckan_akiya, lifull, athome)
+- source_key (string unique)  # stable external identifier (dataset+row_id, api_id, etc.)
+- source_url (nullable)
+- title_jp, title_en
+- desc_jp, desc_en
+- price_jpy (nullable)
+- ldk (nullable)
+- land_area_m2 (nullable)
+- building_area_m2 (nullable)
+- year_built (nullable)
+- has_land (boolean nullable)
+- raw_capture_id (fk)
+- first_seen_at, last_seen_at
+- status (active/inactive/unknown)
+
+3) raw_captures (for audit / debugging)
+- id (uuid)
+- source_type
+- fetched_at
+- content_type (json/csv)
+- sha256
+- storage_ref (text) OR inline_json (jsonb) if small
+- http_status, error (nullable)
+
+4) ckan_datasets (discovered datasets index)
+- id (uuid)
+- ckan_instance_base_url (string)  # often from dataset metadata
+- package_id (string)
+- package_name, title
+- organization, license_id, license_title
+- last_indexed_at
+- tags (text[])
+- notes (text nullable)
+
+5) ckan_resources (downloadable resource files)
+- id (uuid)
+- ckan_dataset_id (fk)
+- resource_id (string)
+- format (CSV/JSON/XLSX)
+- download_url
+- schema_hint (jsonb nullable)
+- last_fetched_at
+
+6) reinfolib_transactions (option 1 comps)
+- id (uuid)
+- prefecture, municipality, district (nullable)
+- lat, lon (nullable)
+- transaction_date (date nullable)
+- price_total_jpy (nullable)
+- unit_price_jpy (nullable)
+- land_area_m2, building_area_m2 (nullable)
+- building_year (nullable)
+- property_type (string nullable)
+- source_key (unique)
+- raw_capture_id (fk)
+
+7) partner_sources_config
+- id (uuid)
+- name (lifull/athome)
+- enabled (boolean)
+- config_json (jsonb)  # endpoints, feed locations, etc.
+- last_run_at, last_error
+
+ENV VARS (add to .env.example)
+- REINFOLIB_API_KEY=...
+- CKAN_SEARCH_BASE_URL=https://search.ckan.jp/api/3/action
+- TRANSLATE_PROVIDER=openai|deepl|google
+- OPENAI_API_KEY=...
+- DEEPL_API_KEY=...
+- LIFULL_ENABLED=false
+- LIFULL_CLIENT_ID=...
+- LIFULL_CLIENT_SECRET=...
+- LIFULL_TOKEN_URL=...
+- LIFULL_API_BASE=...
+- ATHOME_ENABLED=false
+- ATHOME_FEED_URL=...        # can be https://, s3://, ftp:// (implement https required; s3/ftp optional)
+- INGESTION_RATE_LIMIT_PER_HOST=60  # requests/min
+- INGESTION_CRON_REINFOLIB=0 */12 * * *
+- INGESTION_CRON_CKAN_DISCOVERY=0 */24 * * *
+- INGESTION_CRON_CKAN_RESOURCES=0 */6 * * *
+- INGESTION_CRON_PARTNERS=0 */6 * * *
+
+OPTION 1 — REINFOLIB (MLIT) IMPLEMENTATION
+Purpose: Not a listings feed. Use it for:
+- Comparable transactions database (reinfolib_transactions)
+- Optional enrichment overlays later (not required now) — design for it.
+
+Tasks:
+1) Implement ReinfolibClient with:
+- Base URL configurable
+- API key header/param
+- retries + exponential backoff
+- rate limiting per host
+- structured logging
+
+2) Implement jobs:
+- reinfolib.syncMunicipalities(): pull latest municipality list (if available) into a lookup table OR store in-memory mapping file
+- reinfolib.backfillTransactions(prefecture/municipality, dateRange): fetch transactions and upsert into reinfolib_transactions
+- reinfolib.incrementalSync(): daily/weekly window to keep fresh
+
+3) Mapping:
+- Normalize dates, prices, areas
+- Derive lat/lon if API provides; otherwise store address fields only
+- Generate source_key = hash(prefecture|municipality|date|price|areas|any_txn_id)
+
+4) Linkage to property_entities (optional MVP step):
+- If txn record includes coordinates or precise district, attempt to match an existing property_entity by proximity/address. Otherwise leave unlinked.
+
+OPTION 2 — MUNICIPAL CKAN OPEN DATA PORTALS
+Purpose: Some municipalities publish “akiya bank” listing tables (often CSV). These are actual property records.
+
+Tasks:
+1) Implement CKANClient generic:
+- package_show(package_id)
+- resource_show(resource_id)
+- datastore_search (ONLY if the resource is in CKAN DataStore; optional)
+- download resource file via URL (CSV/JSON)
+- caching by ETag/Last-Modified if provided
+
+2) Implement dataset parsing:
+- CSV parser with encoding detection (Shift_JIS/UTF-8). Convert to UTF-8.
+- Schema sniffing: detect columns like 住所, 所在地, 価格, 間取り, 土地面積, 延床面積, 建築年, URL
+- If schema not recognized, store raw and mark “needs mapping”; do not attempt to create listings.
+
+3) Normalization into listing_variants + property_entities:
+- Create property_entity using best available address + lat/lon if present.
+- Create listing_variant with source_type=ckan_akiya and source_key = hash(ckan_instance|package_id|resource_id|row_identifier)
+- If row includes a listing URL, store it.
+
+4) Scheduling:
+- For each discovered dataset resource: refresh every 6 hours (or daily if heavy).
+- Use last_fetched_at and sha256 to skip unchanged resources.
+
+OPTION 3 — search.ckan.jp DISCOVERY LAYER
+Purpose: automatically find CKAN datasets across Japan that match “空き家バンク / akiya bank” keywords.
+
+Tasks:
+1) Implement search job:
+- ckan.discovery.searchCkanJp(keywords[]): call package_search with queries like:
+  - "空き家バンク"
+  - "空き家"
+  - "移住 住宅"
+  - "空き家バンク 物件"
+- Store results in ckan_datasets
+- For each dataset: fetch package_show and store resource list into ckan_resources
+- Respect pagination
+
+2) Add dataset allowlist/denylist logic:
+- Only ingest resources that look like property tables (CSV/JSON/XLSX) and have a permissive license.
+- If license is missing/unclear, mark dataset as “review required” and skip automatic ingestion.
+
+OPTION 4 — PARTNER / B2B FEEDS (LIFULL + AtHome)
+Purpose: These can be major listing sources, but require credentials/licensing. Implement connectors as disabled-by-default, production-ready skeletons.
+
+LIFULL HOME’S Public API
+1) Implement OAuth2 client credentials flow:
+- token cache in memory + persisted fallback
+- refresh before expiry
+- secure storage of secrets (env only)
+2) Implement LIFULL client wrapper:
+- typed requests/responses
+- pagination helpers
+- rate limiting
+3) Implement mapping:
+- Map partner fields to listing_variants (source_type=lifull)
+- Link to property_entities by lat/lon/address
+4) Keep connector OFF unless LIFULL_ENABLED=true and credentials exist.
+5) If no credentials, the connector should report “configured=false” but the app still builds.
+
+AtHome feeds / municipal linkage
+Because there may not be a public developer API, implement a “LicensedFeedConnector” that can ingest from:
+- HTTPS URL returning JSON/CSV
+- (Optional) S3 object URL (if you already use AWS)
+- (Optional) FTP (only if requested; otherwise keep as TODO)
+Steps:
+1) Feed fetcher with checksums + incremental updates
+2) Parser (CSV/JSON) similar to CKAN parsing
+3) Mapping to listing_variants (source_type=athome) + property_entities
+4) OFF unless ATHOME_ENABLED=true and ATHOME_FEED_URL is set
+
+DEDUPE / ENTITY RESOLUTION (MUST IMPLEMENT)
+Goal: Multiple variants from different sources should map to a single property_entity.
+
+Implement a deterministic resolver (no LLM needed):
+1) Create normalization helpers:
+- normalizeAddressJP(): strip whitespace, normalize numerals, remove building suffix variants
+- normalizeLatLon(): round to 5 decimals for matching bins (~1m–2m)
+2) Candidate matching rules (in order):
+- If lat/lon present: match property_entity within 100m AND same municipality/prefecture (if present)
+- Else address match: exact normalized address within same municipality/prefecture
+- Else fuzzy: trigram similarity on address/title above threshold + same municipality
+3) Confidence scoring:
+- Start at 0.5 for proximity match, 0.7 if proximity+address, 0.9 if exact address
+- Store confidence_score on property_entity
+4) When uncertain (<0.65), create a new property_entity but log a dedupe_candidate row (optional) for future review.
+
+TRANSLATION TO ENGLISH (MUST IMPLEMENT)
+You will translate ONLY text fields that exist in the open data / partner payloads.
+1) Translation provider interface:
+- translate(text, sourceLang="ja", targetLang="en") returns translated text
+2) Cache:
+- Key = sha256(provider|version|text)
+- Store in translation_cache table OR reuse raw_captures with a translation type
+3) Pipeline:
+- On ingest, store JP fields first.
+- Queue translate jobs for title_jp, desc_jp, address_jp if EN missing.
+- Save title_en/desc_en/address_en.
+4) Safety:
+- Translation must not hallucinate. For LLM-based translation, require JSON output:
+  { "translation": "...", "notes": "optional" }
+- If translation fails, keep JP only and mark translate_status=failed.
+
+JOBS / SCHEDULER
+Implement these recurring jobs (cron configurable via env):
+- ckanDiscoveryJob: discover datasets via search.ckan.jp, update ckan_datasets/resources
+- ckanResourceIngestJob: download updated resources, parse and upsert listing_variants/property_entities
+- reinfolibIncrementalJob: keep transactions updated for configured regions/time windows
+- partnerIngestJob: run LIFULL/AtHome connectors if enabled
+- translateJob: translate missing EN fields in batches
+
+OBSERVABILITY + ADMIN
+Add an “Ingestion Status” admin screen or API:
+- per connector: last_run_at, items_fetched, items_upserted, errors
+- last 50 error logs
+- ability to trigger manual run per connector
+
+IMPLEMENTATION ORDER (DO IN THIS ORDER)
+1) Add DB tables + Prisma models + migrations
+2) Build connector interface + registry + enable flags
+3) Implement CKAN discovery (search.ckan.jp) and CKAN resource ingestion for one dataset end-to-end
+4) Implement translation cache + translate job
+5) Implement dedupe/entity resolution linking variants to property_entities
+6) Implement reinfolib client + transaction ingestion
+7) Implement partner connector skeletons (disabled by default) with clean configuration and clear TODOs
+8) Add admin status endpoints/UI
+
+DELIVERABLES
+- Working pipeline for Options 1, 2, 3 (runs without partner creds)
+- Partner connectors (Option 4) fully coded but disabled until creds are provided
+- Unit tests:
+  - CSV encoding handling
+  - schema sniffing for akiya-like datasets
+  - entity resolver matching by proximity/address
+  - translation cache hashing + idempotency
+- Updated README: how to enable each connector and what data it provides.
+
+START NOW:
+Begin by editing the schema, creating connector/types.ts, then implement search.ckan.jp discovery + one CKAN ingest path (CSV) and show working upserts into listing_variants + property_entities. Then add translate + dedupe.
+```

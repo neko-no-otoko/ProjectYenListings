@@ -46,11 +46,46 @@ The server structure includes:
 
 ### Data Model
 Core entities defined in `shared/schema.ts`:
-- **listings** - Property records with location, pricing, condition, photos
+- **listings** - Property records with location, pricing, condition, photos (display layer)
 - **sources** - Third-party data source configurations with crawl policies
 - **airports** - Major Japanese airports for distance calculations
 
+#### Ingestion Pipeline Tables (added January 2026)
+- **property_entities** - Deduplicated property records with canonical addresses
+- **listing_variants** - Source-specific listing data linked to property entities
+- **raw_captures** - Audit log of raw data fetched from sources
+- **ckan_datasets** - Tracked CKAN datasets from municipal akiya banks
+- **ckan_resources** - Individual resources (CSV/JSON files) within datasets
+- **reinfolib_transactions** - MLIT real estate transaction data (comps)
+- **partner_sources_config** - Configuration for B2B partner feeds
+- **translation_cache** - Hash-based cache for JP→EN translations
+- **ingestion_logs** - Job execution logs for monitoring
+
 Key listing fields include prefecture, municipality, island, coordinates, price, LDK layout, house/land sizes, year built, condition score, and multilingual content (English + Japanese).
+
+### Connector Architecture
+The ingestion pipeline uses a unified connector interface pattern:
+
+**Connector Types:**
+- **CKAN Discovery** - Searches search.ckan.jp for akiya bank datasets
+- **CKAN Resource Ingest** - Parses CSV/JSON from municipal open data portals
+- **Reinfolib** - Fetches MLIT real estate transaction data
+- **LIFULL** - OAuth2-authenticated B2B feed (requires credentials)
+- **AtHome** - B2B feed via HTTP/S3/SFTP (requires credentials)
+
+**Pipeline Flow:**
+1. Raw capture → SHA256 hash for deduplication
+2. Parse with encoding detection (Shift_JIS/UTF-8)
+3. Extract Japanese text (wareki years, tsubo→m² conversion, LDK)
+4. Normalize addresses and dedupe via haversine proximity (100m threshold)
+5. Translate JP→EN via OpenAI/DeepL (cached by hash)
+6. Link listing variants to canonical property entities
+
+**Files:**
+- `server/lib/connectors/` - Connector implementations
+- `server/lib/ingestion/` - Rate limiting, HTTP client, upsert, dedupe
+- `server/lib/translate/` - Translation provider interface
+- `server/adminRoutes.ts` - Admin API for monitoring/triggers
 
 ### Build System
 - Development: `tsx` runs TypeScript directly with Vite dev server
@@ -64,11 +99,33 @@ Key listing fields include prefecture, municipality, island, coordinates, price,
 - **Drizzle Kit** - Schema migrations via `drizzle-kit push`
 
 ### Third-Party Services
-The application is designed to aggregate from these akiya listing sources (implementation pending):
+**Production Connectors (implemented):**
+- **search.ckan.jp** - Discovery layer for municipal CKAN portals
+- **Municipal CKAN portals** - Akiya bank listings (CSV/JSON)
+- **MLIT Reinfolib** - Real estate transaction data
+
+**Partner Connectors (skeleton implemented, requires credentials):**
+- **LIFULL (homes.co.jp)** - OAuth2 B2B API
+- **AtHome** - HTTP/S3/SFTP feed
+
+**Future Sources (design only):**
 - Akiya Air, Nippon Tradings International, Akiyaz
 - Zero Estate, AkiyaBanks, Akiya Japan
 - AkiyaMart, All Akiyas, Old Houses Japan
 - Koryoya, Akiyahopper, Cheap Japan Homes
+
+### Environment Variables
+**Required:**
+- `DATABASE_URL` - PostgreSQL connection string
+
+**Optional (connector configuration):**
+- `OPENAI_API_KEY` / `DEEPL_API_KEY` - Translation provider
+- `REINFOLIB_API_KEY` - MLIT API access
+- `LIFULL_ENABLED`, `LIFULL_CLIENT_ID`, `LIFULL_CLIENT_SECRET` - LIFULL OAuth2
+- `ATHOME_ENABLED`, `ATHOME_FEED_URL`, `ATHOME_FEED_FORMAT` - AtHome feed
+- `INGESTION_RATE_LIMIT_PER_HOST` - Rate limit (default: 60 req/min)
+- `INGESTION_CRON_*` - Cron expressions for scheduled jobs
+- `ADMIN_API_TOKEN` - Bearer token for admin API access (required in production)
 
 ### Key NPM Packages
 - `@tanstack/react-query` - Async state management

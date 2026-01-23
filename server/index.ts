@@ -3,6 +3,12 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabase } from "./seed";
+import { adminRouter } from "./adminRoutes";
+import { registerConnector } from "./lib/connectors/index";
+import { ckanDiscoveryConnector } from "./lib/connectors/ckan/searchCkanJp";
+import { reinfolibConnector } from "./lib/connectors/reinfolib/jobs";
+import { lifullConnector } from "./lib/connectors/partners/lifull/jobs";
+import { atHomeConnector } from "./lib/connectors/partners/athome/jobs";
 
 const app = express();
 const httpServer = createServer(app);
@@ -61,6 +67,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  registerConnector(ckanDiscoveryConnector);
+  registerConnector(reinfolibConnector);
+  registerConnector(lifullConnector);
+  registerConnector(atHomeConnector);
+  log("Connectors registered");
+
+  app.use("/api/admin", adminRouter);
+  
   await registerRoutes(httpServer, app);
 
   try {
