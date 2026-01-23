@@ -388,9 +388,10 @@ adminRouter.post("/feeds", async (req, res) => {
       return res.status(400).json({ error: "Invalid feed data", details: parseResult.error.errors });
     }
     
+    const feedData = parseResult.data as typeof sourceFeeds.$inferInsert;
     const [feed] = await db
       .insert(sourceFeeds)
-      .values(parseResult.data)
+      .values(feedData)
       .returning();
     
     res.status(201).json({ feed });
