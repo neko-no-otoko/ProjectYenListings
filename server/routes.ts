@@ -1,7 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { searchFiltersSchema } from "@shared/schema";
+import { searchFiltersSchema, listings } from "@shared/schema";
+import { db } from "./db";
+import { sql, eq, and } from "drizzle-orm";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -72,6 +74,25 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Get airports error:", error);
       res.status(500).json({ error: "Failed to fetch airports" });
+    }
+  });
+
+  app.get("/api/stats/live-listings", async (req, res) => {
+    try {
+      const result = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(listings)
+        .where(
+          and(
+            eq(listings.status, "active"),
+            sql`${listings.lastSeenAt} IS NOT NULL`
+          )
+        );
+      const count = result[0]?.count || 0;
+      res.json({ liveCount: count, isDev: process.env.NODE_ENV !== "production" });
+    } catch (error) {
+      console.error("Get live listings count error:", error);
+      res.status(500).json({ error: "Failed to get live listings count" });
     }
   });
 

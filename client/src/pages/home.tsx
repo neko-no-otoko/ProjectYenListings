@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { SearchFilters } from "@/components/search-filters";
 import { ListingCard } from "@/components/listing-card";
 import { ListingMap } from "@/components/listing-map";
+import { DevBanner } from "@/components/dev-banner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -75,6 +76,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <DevBanner />
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between gap-4">

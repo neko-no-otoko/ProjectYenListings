@@ -94,6 +94,7 @@ export class DatabaseStorage implements IStorage {
     }
 
     conditions.push(eq(listings.status, "active"));
+    conditions.push(sql`${listings.lastSeenAt} IS NOT NULL`);
 
     let orderBy;
     switch (filters.sortBy) {

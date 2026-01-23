@@ -234,6 +234,8 @@ const SAMPLE_LISTINGS = [
 export async function seedDatabase() {
   console.log("Starting database seed...");
 
+  const seedFakeData = process.env.SEED_FAKE_DATA === "true";
+
   try {
     const existingAirports = await db.select().from(airports).limit(1);
     if (existingAirports.length === 0) {
@@ -258,37 +260,42 @@ export async function seedDatabase() {
       console.log("Seeded 1 source");
     }
 
-    const existingListings = await db.select().from(listings).limit(1);
-    if (existingListings.length === 0) {
-      console.log("Seeding sample listings...");
+    if (seedFakeData) {
+      const existingListings = await db.select().from(listings).limit(1);
+      if (existingListings.length === 0) {
+        console.log("Seeding sample listings (SEED_FAKE_DATA=true)...");
 
-      const allAirports = await db.select().from(airports).where(sql`${airports.isMajor} = true`);
+        const allAirports = await db.select().from(airports).where(sql`${airports.isMajor} = true`);
 
-      for (const listing of SAMPLE_LISTINGS) {
-        let nearestAirport = null;
-        let nearestDistance = Infinity;
+        for (const listing of SAMPLE_LISTINGS) {
+          let nearestAirport = null;
+          let nearestDistance = Infinity;
 
-        if (listing.lat && listing.lon) {
-          for (const airport of allAirports) {
-            const distance = haversineDistance(listing.lat, listing.lon, airport.lat, airport.lon);
-            if (distance < nearestDistance) {
-              nearestDistance = distance;
-              nearestAirport = airport;
+          if (listing.lat && listing.lon) {
+            for (const airport of allAirports) {
+              const distance = haversineDistance(listing.lat, listing.lon, airport.lat, airport.lon);
+              if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestAirport = airport;
+              }
             }
           }
+
+          await db.insert(listings).values({
+            ...listing,
+            nearestAirportIata: nearestAirport?.iata || null,
+            nearestAirportName: nearestAirport?.nameEn || null,
+            nearestAirportKm: nearestAirport ? nearestDistance : null,
+            lastSeenAt: new Date(),
+          });
         }
 
-        await db.insert(listings).values({
-          ...listing,
-          nearestAirportIata: nearestAirport?.iata || null,
-          nearestAirportName: nearestAirport?.nameEn || null,
-          nearestAirportKm: nearestAirport ? nearestDistance : null,
-        });
+        console.log(`Seeded ${SAMPLE_LISTINGS.length} listings`);
+      } else {
+        console.log("Listings already seeded, skipping...");
       }
-
-      console.log(`Seeded ${SAMPLE_LISTINGS.length} listings`);
     } else {
-      console.log("Listings already seeded, skipping...");
+      console.log("Skipping sample listings (SEED_FAKE_DATA not set to 'true')");
     }
 
     console.log("Database seed completed!");
