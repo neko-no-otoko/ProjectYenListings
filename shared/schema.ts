@@ -5,10 +5,11 @@ import { z } from "zod";
 
 export const priceTypeEnum = pgEnum("price_type", ["transfer_fee", "purchase_price", "unknown"]);
 export const listingStatusEnum = pgEnum("listing_status", ["active", "inactive", "delisted", "unknown"]);
-export const sourceTypeEnum = pgEnum("source_type", ["reinfolib_txn", "ckan_akiya", "lifull", "athome", "manual"]);
+export const sourceTypeEnum = pgEnum("source_type", ["reinfolib_txn", "ckan_akiya", "lifull", "athome", "manual", "arcgis_akiya", "socrata_akiya", "feed_import"]);
 export const translateStatusEnum = pgEnum("translate_status", ["pending", "completed", "failed", "skipped"]);
 export const contentTypeEnum = pgEnum("content_type", ["json", "csv", "xlsx", "xml", "unknown"]);
 export const datasetStatusEnum = pgEnum("dataset_status", ["active", "review_required", "denied", "inactive"]);
+export const feedTypeEnum = pgEnum("feed_type", ["ckan_instance", "arcgis_layer", "socrata_dataset", "http_file"]);
 
 export const sources = pgTable("sources", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -213,9 +214,71 @@ export const syncCursors = pgTable("sync_cursors", {
   cursorTs: timestamp("cursor_ts", { withTimezone: true }).notNull(),
 });
 
+export const sourceFeeds = pgTable("source_feeds", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  type: feedTypeEnum("type").notNull(),
+  enabled: boolean("enabled").default(false).notNull(),
+  config: jsonb("config").$type<SourceFeedConfig>().notNull(),
+  cron: text("cron"),
+  lastRunAt: timestamp("last_run_at"),
+  lastError: text("last_error"),
+  itemsFetched: integer("items_fetched").default(0),
+  itemsUpserted: integer("items_upserted").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const ckanInstanceConfigSchema = z.object({
+  baseUrl: z.string(),
+  query: z.string().optional(),
+  rows: z.number().default(100),
+});
+
+export const fieldMapSchema = z.record(z.string(), z.string());
+
+export const arcgisLayerConfigSchema = z.object({
+  layerUrl: z.string(),
+  where: z.string().default("1=1"),
+  pageSize: z.number().default(500),
+  fieldMap: fieldMapSchema,
+});
+
+export const socrataDatasetConfigSchema = z.object({
+  domain: z.string(),
+  resourceId: z.string(),
+  appTokenEnv: z.string().optional(),
+  where: z.string().optional(),
+  pageSize: z.number().default(500),
+  fieldMap: fieldMapSchema,
+});
+
+export const httpFileConfigSchema = z.object({
+  url: z.string(),
+  format: z.enum(["csv", "json", "xlsx", "auto"]).default("auto"),
+  fieldMap: fieldMapSchema,
+});
+
+export const sourceFeedConfigSchema = z.union([
+  ckanInstanceConfigSchema,
+  arcgisLayerConfigSchema,
+  socrataDatasetConfigSchema,
+  httpFileConfigSchema,
+]);
+
+export type CkanInstanceConfig = z.infer<typeof ckanInstanceConfigSchema>;
+export type ArcgisLayerConfig = z.infer<typeof arcgisLayerConfigSchema>;
+export type SocrataDatasetConfig = z.infer<typeof socrataDatasetConfigSchema>;
+export type HttpFileConfig = z.infer<typeof httpFileConfigSchema>;
+export type SourceFeedConfig = CkanInstanceConfig | ArcgisLayerConfig | SocrataDatasetConfig | HttpFileConfig;
+
 export const insertSyncCursorSchema = createInsertSchema(syncCursors);
 export type SyncCursor = typeof syncCursors.$inferSelect;
 export type InsertSyncCursor = z.infer<typeof insertSyncCursorSchema>;
+
+export const insertSourceFeedSchema = createInsertSchema(sourceFeeds).omit({ id: true, createdAt: true, updatedAt: true, lastRunAt: true, lastError: true, itemsFetched: true, itemsUpserted: true });
+export type SourceFeed = typeof sourceFeeds.$inferSelect;
+export type InsertSourceFeed = z.infer<typeof insertSourceFeedSchema>;
 
 export const listingsRelations = relations(listings, ({ one }) => ({
   source: one(sources, {
