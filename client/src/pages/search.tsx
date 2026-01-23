@@ -8,8 +8,9 @@ import { DevBanner } from "@/components/dev-banner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Grid, Map, Home as HomeIcon, ChevronLeft, ChevronRight, HelpCircle } from "lucide-react";
+import { Grid, Map, Home as HomeIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import type { SearchFilters as SearchFiltersType, Listing } from "@shared/schema";
+import yenlowLogo from "@assets/yenlow-logo.png";
 
 export default function SearchPage() {
   const [, setLocation] = useLocation();
@@ -94,10 +95,7 @@ export default function SearchPage() {
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-6">
               <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-                  <HomeIcon className="h-5 w-5 text-primary-foreground" />
-                </div>
-                <span className="text-xl font-bold tracking-tight">YenLow</span>
+                <img src={yenlowLogo} alt="YenLow" className="h-8" />
               </Link>
               <nav className="hidden sm:flex items-center gap-4">
                 <Link href="/search" className="text-sm font-medium text-primary border-b-2 border-primary pb-1">

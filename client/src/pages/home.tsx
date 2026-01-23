@@ -18,6 +18,7 @@ import {
   Clock
 } from "lucide-react";
 import { formatPriceUsd, formatHouseSqft, formatLandSqft } from "@/lib/conversions";
+import yenlowLogo from "@assets/yenlow-logo.png";
 
 interface NewestListing {
   id: string;
@@ -97,10 +98,7 @@ export default function HomePage() {
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-6">
               <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                <div className="w-8 h-8 rounded-md bg-white/90 flex items-center justify-center shadow-sm">
-                  <HomeIcon className="h-5 w-5 text-primary" />
-                </div>
-                <span className="text-xl font-bold tracking-tight text-white drop-shadow-md">YenLow</span>
+                <img src={yenlowLogo} alt="YenLow" className="h-10 drop-shadow-md" />
               </Link>
               <nav className="hidden sm:flex items-center gap-4">
                 <Link href="/search" className="text-sm font-medium text-white/90 hover:text-white transition-colors drop-shadow">
@@ -294,10 +292,7 @@ export default function HomePage() {
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
-                <HomeIcon className="h-4 w-4 text-primary-foreground" />
-              </div>
-              <span className="font-semibold">YenLow</span>
+              <img src={yenlowLogo} alt="YenLow" className="h-6" />
             </div>
             <p className="text-sm text-muted-foreground text-center">
               Data sourced from municipal akiya banks and partner feeds. Prices and availability subject to change.
