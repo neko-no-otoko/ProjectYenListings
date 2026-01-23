@@ -151,9 +151,19 @@ The ingestion pipeline uses a unified connector interface pattern:
 ### Ingestion Workflow
 To populate live listings from CKAN sources:
 ```bash
-tsx scripts/ingest-ckan.ts    # Discover datasets from search.ckan.jp
-tsx scripts/sync-listings.ts  # Materialize listings from ingested data
+tsx scripts/go-live.ts        # Full pipeline: discovery → ingest → translate → sync
+tsx scripts/ingest-ckan.ts    # Just CKAN discovery + resource ingest
+tsx scripts/sync-listings.ts  # Just materialize listings from ingested data
 ```
+
+**go-live.ts Pipeline Steps:**
+1. CKAN Dataset Discovery - Search search.ckan.jp for akiya bank datasets
+2. CKAN Resource Ingest - Parse CSV/JSON from discovered datasets
+3. Translation - JP→EN translation (skipped if no provider configured)
+4. Sync Listings - Materialize property entities + variants into listings table
+
+Each step uses advisory locks and logs to ingestion_logs table.
+Pipeline prints a summary with datasets/resources/variants/entities/listings counts.
 
 ### Live Listings Filter
 Frontend only displays "live" listings where:

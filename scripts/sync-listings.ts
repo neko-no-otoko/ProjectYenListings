@@ -1,4 +1,4 @@
-import { runSyncListings } from "../server/lib/ingestion/syncListings";
+import { runSyncListingsJob } from "../server/lib/ingestion/syncListings";
 
 async function main() {
   console.log("=== Sync Listings Script ===\n");
@@ -6,7 +6,7 @@ async function main() {
   try {
     console.log("Running sync_listings job to materialize live listings...\n");
     
-    const result = await runSyncListings();
+    const result = await runSyncListingsJob();
     
     console.log(`\nSync complete:`);
     console.log(`  - Success: ${result.success}`);

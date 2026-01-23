@@ -1,26 +1,37 @@
-import { db } from "../server/db";
-import { discoverCkanDatasets } from "../server/lib/connectors/ckan/searchCkanJp";
+import { ckanDiscoveryConnector } from "../server/lib/connectors/ckan/searchCkanJp";
+import { runCkanResourceIngestJob } from "../server/lib/connectors/ckan/jobs";
 
 async function main() {
   console.log("=== CKAN Ingest Script ===\n");
   
   try {
     console.log("1. Discovering akiya bank datasets from search.ckan.jp...");
-    const result = await discoverCkanDatasets();
+    const discoveryResult = await ckanDiscoveryConnector.discoverDatasets();
     
-    console.log(`\nDiscovery complete:`);
-    console.log(`  - Datasets found: ${result.datasetsFound}`);
-    console.log(`  - Resources found: ${result.resourcesFound}`);
-    console.log(`  - New datasets: ${result.newDatasets}`);
-    console.log(`  - New resources: ${result.newResources}`);
+    if (discoveryResult.success && discoveryResult.data) {
+      console.log(`\nDiscovery complete:`);
+      console.log(`  - Datasets found: ${discoveryResult.data.length}`);
+      if (discoveryResult.metadata) {
+        console.log(`  - New datasets: ${discoveryResult.metadata.upserted}`);
+      }
+    } else {
+      console.log(`\nDiscovery failed: ${discoveryResult.error}`);
+    }
     
-    if (result.errors.length > 0) {
-      console.log(`  - Errors: ${result.errors.length}`);
-      result.errors.forEach(e => console.log(`    - ${e}`));
+    console.log("\n2. Ingesting resources from discovered datasets...");
+    const ingestResult = await runCkanResourceIngestJob();
+    
+    if (ingestResult.success) {
+      console.log(`\nIngest complete:`);
+      console.log(`  - Rows fetched: ${ingestResult.itemsFetched}`);
+      console.log(`  - Variants upserted: ${ingestResult.itemsUpserted}`);
+      console.log(`  - Skipped: ${ingestResult.itemsSkipped}`);
+    } else {
+      console.log(`\nIngest failed: ${ingestResult.error}`);
     }
     
     console.log("\n=== CKAN Ingest Complete ===");
-    console.log("\nNext step: Run 'npm run sync:listings' to materialize listings");
+    console.log("\nNext step: Run 'tsx scripts/sync-listings.ts' to materialize listings");
     
   } catch (error) {
     console.error("CKAN ingest failed:", error);
