@@ -6,7 +6,9 @@ import {
   ckanResources, 
   listingVariants, 
   propertyEntities,
-  partnerSourcesConfig 
+  partnerSourcesConfig,
+  sourceFeeds,
+  insertSourceFeedSchema,
 } from "@shared/schema";
 import { eq, desc, sql } from "drizzle-orm";
 import { syncCursors } from "@shared/schema";
@@ -14,6 +16,8 @@ import { getConnectorStatuses } from "./lib/connectors/index";
 import { runJob, getScheduledJobs, getJobStatus, startScheduler, stopScheduler } from "./lib/ingestion/scheduler";
 import { runSyncListingsJob, previewSyncListings } from "./lib/ingestion/syncListings";
 import { getSearchCkanJpClient } from "./lib/connectors/ckan/ckanClient";
+import { runFeedsIngest, runSingleFeedIngest } from "./lib/ingestion/feedsIngest";
+import { previewFeed } from "./lib/connectors/feeds";
 
 export const adminRouter = Router();
 
@@ -359,6 +363,158 @@ adminRouter.get("/sync/listings", async (_req, res) => {
   try {
     const result = await runSyncListingsJob();
     res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.get("/feeds", async (_req, res) => {
+  try {
+    const feeds = await db
+      .select()
+      .from(sourceFeeds)
+      .orderBy(desc(sourceFeeds.createdAt));
+    
+    res.json({ feeds });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.post("/feeds", async (req, res) => {
+  try {
+    const parseResult = insertSourceFeedSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({ error: "Invalid feed data", details: parseResult.error.errors });
+    }
+    
+    const [feed] = await db
+      .insert(sourceFeeds)
+      .values(parseResult.data)
+      .returning();
+    
+    res.status(201).json({ feed });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.get("/feeds/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [feed] = await db
+      .select()
+      .from(sourceFeeds)
+      .where(eq(sourceFeeds.id, id))
+      .limit(1);
+    
+    if (!feed) {
+      return res.status(404).json({ error: "Feed not found" });
+    }
+    
+    res.json({ feed });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.patch("/feeds/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, type, enabled, config, cron } = req.body;
+    
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (name !== undefined) updateData.name = name;
+    if (type !== undefined) updateData.type = type;
+    if (enabled !== undefined) updateData.enabled = enabled;
+    if (config !== undefined) updateData.config = config;
+    if (cron !== undefined) updateData.cron = cron;
+    
+    const [feed] = await db
+      .update(sourceFeeds)
+      .set(updateData)
+      .where(eq(sourceFeeds.id, id))
+      .returning();
+    
+    if (!feed) {
+      return res.status(404).json({ error: "Feed not found" });
+    }
+    
+    res.json({ feed });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.delete("/feeds/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    await db
+      .delete(sourceFeeds)
+      .where(eq(sourceFeeds.id, id));
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.post("/feeds/:id/run", async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    res.json({ message: "Feed ingest started", feedId: id, status: "running" });
+    
+    runSingleFeedIngest(id).then(result => {
+      console.log(`[Admin] Feed ${id} ingest result:`, result);
+    }).catch(error => {
+      console.error(`[Admin] Feed ${id} ingest error:`, error);
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.post("/feeds/:id/preview", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = Math.min(parseInt(req.query.limit as string) || 3, 10);
+    
+    const [feed] = await db
+      .select()
+      .from(sourceFeeds)
+      .where(eq(sourceFeeds.id, id))
+      .limit(1);
+    
+    if (!feed) {
+      return res.status(404).json({ error: "Feed not found" });
+    }
+    
+    const result = await previewFeed(feed, limit);
+    
+    res.json({
+      feedId: id,
+      feedName: feed.name,
+      feedType: feed.type,
+      previewRecords: result.records,
+      fetchedCount: result.fetchedCount,
+      error: result.error,
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.post("/feeds/ingest-all", async (_req, res) => {
+  try {
+    res.json({ message: "All feeds ingest started", status: "running" });
+    
+    runFeedsIngest().then(results => {
+      console.log("[Admin] All feeds ingest results:", results);
+    }).catch(error => {
+      console.error("[Admin] All feeds ingest error:", error);
+    });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
