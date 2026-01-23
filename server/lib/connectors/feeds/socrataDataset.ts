@@ -1,6 +1,6 @@
 import type { SourceFeed, SocrataDatasetConfig } from "@shared/schema";
 import type { FeedConnector, ConnectorResult, NormalizedRecord } from "./types";
-import { isSocrataDatasetConfig } from "./types";
+import { isSocrataDatasetConfig, generateStableSourceKey } from "./types";
 
 export class SocrataDatasetConnector implements FeedConnector {
   async fetch(feed: SourceFeed): Promise<ConnectorResult> {
@@ -86,10 +86,13 @@ export class SocrataDatasetConnector implements FeedConnector {
     };
 
     const sourceKeyField = fieldMap.sourceKey || ":id";
-    const sourceKeyValue = row[sourceKeyField] ?? row[":id"] ?? String(Math.random());
+    const sourceKeyValue = row[sourceKeyField] ?? row[":id"];
+    const sourceKey = sourceKeyValue 
+      ? `${feedId}:${sourceKeyValue}` 
+      : generateStableSourceKey(feedId, row);
 
     return {
-      sourceKey: `${feedId}:${sourceKeyValue}`,
+      sourceKey,
       titleJp: getValue("titleJp") as string | undefined,
       titleEn: getValue("titleEn") as string | undefined,
       addressJp: getValue("addressJp") as string | undefined,

@@ -1,0 +1,193 @@
+Replit Agent — Add MORE inventory sources (legal + API-based) via a “Feed Registry” + 3 new connector types
+
+GOAL
+We already ingest CKAN + Reinfolib + (optional) LIFULL/AtHome. Add a scalable way to ingest additional sources WITHOUT scraping random websites:
+- Generic CKAN instances (not just search.ckan.jp)
+- ArcGIS Open Data (FeatureServer layers)
+- Socrata Open Data datasets
+- Direct file feeds (CSV/JSON/XLSX) from any public URL or partner share
+
+This must plug into our existing pipeline:
+feed -> listingVariants -> propertyEntities -> sync_listings -> listings
+
+KEY IDEA
+Implement a “Source Feed Registry” table + one generic ingest job that reads enabled feeds and uses connector-by-type to fetch/parse/upsert listingVariants.
+
+────────────────────────────────────────────────────────────
+1) DATABASE / DRIZZLE SCHEMA
+Add a new table: sourceFeeds
+
+Columns (minimal):
+- id (uuid varchar pk)
+- name (text)
+- type (enum: ckan_instance | arcgis_layer | socrata_dataset | http_file)
+- enabled (boolean default false)
+- config (jsonb)  // type-specific settings + field mapping
+- cron (text nullable) // optional per-feed schedule override
+- createdAt, updatedAt (timestamps)
+
+config JSONB examples:
+A) ckan_instance:
+{
+  "baseUrl": "https://<ckan-site>/api/3/action",
+  "query": "空き家バンク",
+  "rows": 100
+}
+
+B) arcgis_layer:
+{
+  "layerUrl": "https://.../FeatureServer/0",
+  "where": "1=1",
+  "pageSize": 500,
+  "fieldMap": {
+    "sourceKey": "OBJECTID",
+    "titleJp": "name",
+    "addressJp": "address",
+    "lat": "lat",
+    "lon": "lon",
+    "priceJpy": "price",
+    "landAreaM2": "land_m2",
+    "buildingAreaM2": "bldg_m2",
+    "yearBuilt": "year_built"
+  }
+}
+
+C) socrata_dataset:
+{
+  "domain": "data.city.gov",
+  "resourceId": "abcd-1234",
+  "appTokenEnv": "SOCRATA_APP_TOKEN", // optional
+  "where": null,
+  "pageSize": 500,
+  "fieldMap": { ...same idea... }
+}
+
+D) http_file:
+{
+  "url": "https://example.gov/data/akiya.csv",
+  "format": "csv|json|xlsx|auto",
+  "fieldMap": { ...same idea... }
+}
+
+NOTE: fieldMap is REQUIRED for arcgis/socrata/http_file because schemas differ. CKAN can use existing heuristics first.
+
+────────────────────────────────────────────────────────────
+2) CONNECTOR ARCHITECTURE
+Add a new registry-based ingest entry point:
+
+- src/connectors/feeds/types.ts (TypeScript types for feed config)
+- src/connectors/feeds/index.ts (dispatch by feed.type)
+- src/connectors/feeds/ckanInstance.ts
+- src/connectors/feeds/arcgisLayer.ts
+- src/connectors/feeds/socrataDataset.ts
+- src/connectors/feeds/httpFile.ts
+
+Each connector returns normalized “records” shaped to listingVariants fields.
+
+REQUIREMENTS (connector behavior)
+- Use existing rate limiter per host.
+- Always write raw_captures for fetched payloads (URL + body/metadata ref).
+- Upsert listingVariants:
+  - sourceType should map as:
+    - ckan_instance -> ckan_akiya
+    - arcgis_layer -> ckan_akiya (or add new enum value if easy: arcgis_akiya)
+    - socrata_dataset -> ckan_akiya (or new enum)
+    - http_file -> manual (or new enum: feed_import)
+  - sourceKey must be stable and unique:
+    `${feed.id}:${remoteIdOrHash}`
+  - sourceUrl should be the canonical link if provided, else the feed url.
+
+ArcGIS fetch logic (minimal, reliable):
+- Use FeatureServer query endpoint:
+  `${layerUrl}/query?where=...&outFields=*&f=json&resultOffset=...&resultRecordCount=...`
+- Page until no more features.
+
+Socrata fetch logic:
+- `https://${domain}/resource/${resourceId}.json?$limit=...&$offset=...`
+- Optional `$where` if configured.
+
+HTTP file fetch logic:
+- Download file, auto-detect encoding for CSV (reuse existing).
+- Add XLSX support (xlsx lib) and convert first sheet to rows.
+- Then map fields using fieldMap.
+
+────────────────────────────────────────────────────────────
+3) INGESTION JOB
+Add job: feeds_ingest (runs on schedule, plus manual trigger)
+
+Steps:
+1) Select enabled feeds from sourceFeeds
+2) For each feed:
+   - acquire advisory lock `feeds_ingest:${feed.id}` (skip if locked)
+   - run the connector by type
+   - upsert listingVariants (and trigger entity resolution same as current pipeline)
+   - log ingestion_logs with counts + errors
+3) Do NOT call sync_listings automatically inside this job; keep it separate (we already have sync_listings schedule).
+
+────────────────────────────────────────────────────────────
+4) ADMIN API (MINIMUM)
+Add endpoints under /api/admin/feeds (Bearer protected):
+- GET /api/admin/feeds -> list feeds + enabled + last run stats
+- POST /api/admin/feeds -> create feed (name, type, config, enabled)
+- PATCH /api/admin/feeds/:id -> update config/enabled
+- POST /api/admin/feeds/:id/run -> run ingest for one feed now
+- POST /api/admin/feeds/:id/preview -> fetch 1 page and return first 3 normalized records WITHOUT writing to DB
+
+This preview endpoint is critical for mapping correctness and keeps iteration cheap.
+
+────────────────────────────────────────────────────────────
+5) TEST DELIVERABLES (keep cheap, no real external deps)
+Unit tests should NOT depend on live ArcGIS/Socrata endpoints.
+Use mocked HTTP responses (nock/msw) with fixture JSON/CSV/XLSX.
+
+Provide tests:
+A) “Feed registry CRUD”
+- create feed
+- update feed
+- list feed
+
+B) “Connector mapping”
+- arcgis fixture -> normalized listingVariants fields
+- socrata fixture -> normalized fields
+- http_file CSV fixture -> normalized fields
+Assert:
+- sourceKey is stable
+- titleEn or titleJp present
+- lat/lon mapped when provided
+- price parsed to integer when possible
+
+C) “End-to-end ingest”
+- Insert a feed row
+- Run feeds_ingest for that feed
+- Assert:
+  - raw_captures inserted
+  - listingVariants upserted
+  - propertyEntities created/linked (if entity resolution runs during ingest)
+Then run sync_listings and assert listings populated.
+
+────────────────────────────────────────────────────────────
+6) READY-FOR-LIVE ACCEPTANCE CHECK
+After implementation:
+1) Add 1 enabled feed of each type using admin API (fixtures first; real URLs later)
+2) Run:
+- POST /api/admin/feeds/:id/run
+- POST /api/admin/sync/listings
+3) Confirm in SQL:
+- listingVariants count increases
+- propertyEntities count increases
+- listings count increases (active only)
+4) Confirm UI shows new listings on homepage carousel and search page.
+
+IMPORTANT CONSTRAINTS
+- Do NOT scrape normal listing websites.
+- Only ingest sources that are open-data APIs/feeds or partner-provided file exports.
+- Keep everything behind the existing pipeline so dedupe + translation + sync continue to work.
+
+IMPLEMENTATION NOTE
+If adding new sourceType enum values is expensive, reuse existing enum (ckan_akiya/manual) but include feed.type inside tags or listingVariants.sourceUrl for debugging. Prefer adding new enum values only if low-risk.
+
+OUTPUT
+- All code changes + migrations
+- Admin endpoints working
+- Tests passing
+- Simple README section: “How to add a new feed source (CKAN/ArcGIS/Socrata/HTTP file)”

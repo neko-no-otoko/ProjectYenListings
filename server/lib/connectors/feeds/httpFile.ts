@@ -1,6 +1,6 @@
 import type { SourceFeed, HttpFileConfig } from "@shared/schema";
 import type { FeedConnector, ConnectorResult, NormalizedRecord } from "./types";
-import { isHttpFileConfig } from "./types";
+import { isHttpFileConfig, generateStableSourceKey } from "./types";
 import { parse as csvParse } from "csv-parse/sync";
 import * as XLSX from "xlsx";
 
@@ -104,10 +104,13 @@ export class HttpFileConnector implements FeedConnector {
     };
 
     const sourceKeyField = fieldMap.sourceKey || "id";
-    const sourceKeyValue = row[sourceKeyField] ?? String(Math.random());
+    const sourceKeyValue = row[sourceKeyField];
+    const sourceKey = sourceKeyValue 
+      ? `${feedId}:${sourceKeyValue}` 
+      : generateStableSourceKey(feedId, row);
 
     return {
-      sourceKey: `${feedId}:${sourceKeyValue}`,
+      sourceKey,
       titleJp: getValue("titleJp") as string | undefined,
       titleEn: getValue("titleEn") as string | undefined,
       addressJp: getValue("addressJp") as string | undefined,

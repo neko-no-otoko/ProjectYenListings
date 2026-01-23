@@ -1,6 +1,6 @@
 import type { SourceFeed, ArcgisLayerConfig } from "@shared/schema";
 import type { FeedConnector, ConnectorResult, NormalizedRecord } from "./types";
-import { isArcgisLayerConfig } from "./types";
+import { isArcgisLayerConfig, generateStableSourceKey } from "./types";
 
 interface ArcGISFeature {
   attributes: Record<string, unknown>;
@@ -99,10 +99,13 @@ export class ArcgisLayerConnector implements FeedConnector {
     };
 
     const sourceKeyField = fieldMap.sourceKey || "OBJECTID";
-    const sourceKeyValue = attrs[sourceKeyField] ?? attrs["OBJECTID"] ?? String(Math.random());
+    const sourceKeyValue = attrs[sourceKeyField] ?? attrs["OBJECTID"];
+    const sourceKey = sourceKeyValue 
+      ? `${feedId}:${sourceKeyValue}` 
+      : generateStableSourceKey(feedId, attrs);
 
     return {
-      sourceKey: `${feedId}:${sourceKeyValue}`,
+      sourceKey,
       titleJp: getValue("titleJp") as string | undefined,
       titleEn: getValue("titleEn") as string | undefined,
       addressJp: getValue("addressJp") as string | undefined,

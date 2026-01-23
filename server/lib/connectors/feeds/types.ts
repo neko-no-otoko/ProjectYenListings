@@ -1,4 +1,5 @@
 import type { SourceFeed, CkanInstanceConfig, ArcgisLayerConfig, SocrataDatasetConfig, HttpFileConfig } from "@shared/schema";
+import crypto from "crypto";
 
 export interface NormalizedRecord {
   sourceKey: string;
@@ -17,6 +18,12 @@ export interface NormalizedRecord {
   yearBuilt?: number;
   hasLand?: boolean;
   photos?: Array<{ url: string; caption?: string; attribution?: string }>;
+}
+
+export function generateStableSourceKey(feedId: string, row: Record<string, unknown>): string {
+  const content = JSON.stringify(row);
+  const hash = crypto.createHash("sha256").update(content).digest("hex").slice(0, 16);
+  return `${feedId}:${hash}`;
 }
 
 export interface ConnectorResult {

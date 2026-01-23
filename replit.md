@@ -85,6 +85,32 @@ The ingestion pipeline uses a unified connector interface pattern:
 - **LIFULL** - OAuth2-authenticated B2B feed (requires credentials)
 - **AtHome** - B2B feed via HTTP/S3/SFTP (requires credentials)
 
+#### Feed Registry System (Added January 2026)
+Scalable connector system for ingesting data from multiple source types:
+
+**Feed Types:**
+- **ckan_instance** - Generic CKAN API instances (not just search.ckan.jp)
+- **arcgis_layer** - ArcGIS Open Data FeatureServer layers
+- **socrata_dataset** - Socrata Open Data datasets
+- **http_file** - Direct file feeds (CSV/JSON/XLSX) from any public URL
+
+**Database Table:** `source_feeds`
+- id, name, type (enum), enabled, config (JSONB), cron, timestamps, run stats
+
+**Admin API Endpoints:** `/api/admin/feeds`
+- GET `/feeds` - List all feeds with stats
+- POST `/feeds` - Create new feed
+- GET `/feeds/:id` - Get single feed
+- PATCH `/feeds/:id` - Update feed config/enabled
+- DELETE `/feeds/:id` - Delete feed
+- POST `/feeds/:id/run` - Run ingest for one feed
+- POST `/feeds/:id/preview` - Preview 3 records without saving
+- POST `/feeds/ingest-all` - Run all enabled feeds
+
+**Files:**
+- `server/lib/connectors/feeds/` - Connector implementations
+- `server/lib/ingestion/feedsIngest.ts` - Feed ingest job with advisory locking
+
 **Pipeline Flow:**
 1. Raw capture → SHA256 hash for deduplication
 2. Parse with encoding detection (Shift_JIS/UTF-8)
@@ -161,6 +187,49 @@ tsx scripts/go-live.ts        # Full pipeline: discovery → ingest → translat
 tsx scripts/ingest-ckan.ts    # Just CKAN discovery + resource ingest
 tsx scripts/sync-listings.ts  # Just materialize listings from ingested data
 ```
+
+### How to Add a New Feed Source
+
+1. **Create feed via Admin API:**
+```bash
+curl -X POST /api/admin/feeds \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My CKAN Feed",
+    "type": "ckan_instance",
+    "enabled": false,
+    "config": {
+      "baseUrl": "https://example.ckan.org/api/3",
+      "query": "空き家",
+      "rows": 100
+    }
+  }'
+```
+
+2. **Preview records to validate field mapping:**
+```bash
+curl -X POST /api/admin/feeds/:id/preview
+```
+
+3. **Enable and run the feed:**
+```bash
+curl -X PATCH /api/admin/feeds/:id -d '{"enabled": true}'
+curl -X POST /api/admin/feeds/:id/run
+```
+
+4. **Sync to listings table:**
+```bash
+curl -X POST /api/admin/sync/listings
+```
+
+**Config Examples by Feed Type:**
+
+- **ckan_instance:** `{ "baseUrl": "...", "query": "...", "rows": 100 }`
+- **arcgis_layer:** `{ "layerUrl": "...FeatureServer/0", "where": "1=1", "pageSize": 500, "fieldMap": {...} }`
+- **socrata_dataset:** `{ "domain": "data.city.gov", "resourceId": "abcd-1234", "pageSize": 500, "fieldMap": {...} }`
+- **http_file:** `{ "url": "https://...", "format": "csv|json|xlsx|auto", "fieldMap": {...} }`
+
+**fieldMap keys:** `sourceKey`, `titleJp`, `titleEn`, `addressJp`, `lat`, `lon`, `priceJpy`, `landAreaM2`, `buildingAreaM2`, `yearBuilt`, `hasLand`
 
 **go-live.ts Pipeline Steps:**
 1. CKAN Dataset Discovery - Search search.ckan.jp for akiya bank datasets
