@@ -293,6 +293,7 @@ export type IngestionLog = typeof ingestionLogs.$inferSelect;
 export type InsertIngestionLog = z.infer<typeof insertIngestionLogSchema>;
 
 export const searchFiltersSchema = z.object({
+  query: z.string().optional(),
   prefecture: z.string().optional(),
   island: z.string().optional(),
   municipality: z.string().optional(),

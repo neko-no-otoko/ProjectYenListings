@@ -39,6 +39,20 @@ export class DatabaseStorage implements IStorage {
   }> {
     const conditions: any[] = [];
 
+    if (filters.query) {
+      const q = `%${filters.query}%`;
+      conditions.push(
+        or(
+          ilike(listings.titleEn, q),
+          ilike(listings.addressEn, q),
+          ilike(listings.prefecture, q),
+          ilike(listings.municipality, q),
+          ilike(listings.locality, q),
+          ilike(listings.island, q)
+        )
+      );
+    }
+
     if (filters.maxPrice !== undefined) {
       conditions.push(lte(listings.priceJpy, filters.maxPrice));
     }

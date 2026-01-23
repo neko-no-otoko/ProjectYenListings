@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { searchFiltersSchema, listings } from "@shared/schema";
 import { db } from "./db";
-import { sql, eq, and } from "drizzle-orm";
+import { sql, eq, and, desc, isNotNull } from "drizzle-orm";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -12,6 +12,7 @@ export async function registerRoutes(
   app.get("/api/search", async (req, res) => {
     try {
       const rawFilters = {
+        query: (req.query.q as string | undefined) || (req.query.query as string | undefined),
         prefecture: req.query.prefecture as string | undefined,
         island: req.query.island as string | undefined,
         municipality: req.query.municipality as string | undefined,
@@ -93,6 +94,46 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Get live listings count error:", error);
       res.status(500).json({ error: "Failed to get live listings count" });
+    }
+  });
+
+  app.get("/api/home/newest", async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 7, 20);
+      
+      const newestListings = await db
+        .select({
+          id: listings.id,
+          titleEn: listings.titleEn,
+          prefecture: listings.prefecture,
+          municipality: listings.municipality,
+          locality: listings.locality,
+          priceJpy: listings.priceJpy,
+          priceType: listings.priceType,
+          ldk: listings.ldk,
+          houseSqm: listings.houseSqm,
+          landSqm: listings.landSqm,
+          photos: listings.photos,
+          listedAt: listings.listedAt,
+          lastSeenAt: listings.lastSeenAt,
+          status: listings.status,
+        })
+        .from(listings)
+        .where(
+          and(
+            eq(listings.status, "active"),
+            isNotNull(listings.lastSeenAt)
+          )
+        )
+        .orderBy(
+          desc(sql`COALESCE(${listings.listedAt}, ${listings.lastSeenAt})`)
+        )
+        .limit(limit);
+
+      res.json(newestListings);
+    } catch (error) {
+      console.error("Get newest listings error:", error);
+      res.status(500).json({ error: "Failed to fetch newest listings" });
     }
   });
 

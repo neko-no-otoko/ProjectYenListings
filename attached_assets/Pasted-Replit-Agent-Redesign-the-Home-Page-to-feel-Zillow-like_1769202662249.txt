@@ -1,0 +1,83 @@
+Replit Agent — Redesign the Home Page to feel Zillow-like (Buy-only), using our live listings
+
+CONTEXT
+- Our data pipeline is complete and the frontend reads from the `listings` table (1 row per propertyEntity).
+- We want the home page layout to resemble Zillow’s home page style: large hero image, big headline, centered search bar, and a “Homes for you” style carousel.
+- IMPORTANT: This app is BUY-ONLY. Do NOT build or link to Rent, Sell, Mortgage, Agent, Manage rentals, etc.
+
+GOAL
+Update the landing/home page UX to match Zillow’s visual structure while keeping our brand. No default filters should be applied; the homepage search should be neutral and only accept user input.
+
+REQUIREMENTS (UI/UX)
+1) Header (Buy-only)
+   - Top nav should include ONLY:
+     - Logo (left) -> links to Home
+     - “Buy” (active) -> links to Search page (same as home search results)
+     - “Help” (optional) -> links to a simple static FAQ page OR remove entirely
+     - “Sign in” button should NOT be added unless auth already exists (don’t create auth).
+   - Remove/avoid any nav items for Rent/Sell/Mortgage/Agents.
+
+2) Hero Section (Zillow-like)
+   - Full-width hero with a background photo (use an existing royalty-free photo or a local asset; do NOT hotlink Zillow assets).
+   - Large headline text (example):
+     “Cheap homes in Japan, in English.”
+     Subheadline optional: “Search live listings from municipal open data and partners.”
+   - Centered, prominent search bar:
+     - Placeholder: “Enter a prefecture, city, town, or keyword”
+     - Search icon button on the right
+   - No default filters. The search bar should route to the Search page with query params (q=... only).
+
+3) “Newest homes” carousel below hero (7 items)
+   - Immediately below hero: section title “Newest homes”
+   - Show a horizontal carousel of exactly 7 most recent properties:
+     - Sort by listings.listedAt DESC, fallback listings.lastSeenAt DESC if listedAt is null
+     - Filter: status='active'
+     - Limit 7
+   - Each card should include:
+     - Photo (from listings.photos JSON if present; else show a clean placeholder)
+     - Price (¥ formatted) and priceType badge if available (transfer_fee / purchase_price / negotiable)
+     - Beds/LDK and house/land sqm if available
+     - Location line: prefecture + municipality + locality
+     - A “days on site” badge computed from listedAt or firstSeenAt (if available; else hide)
+   - Clicking a card routes to Listing Detail page: /listing/:id
+
+4) No additional homepage sections that imply other products
+   - Do NOT create sections like mortgage calculators, agent finder, rentals, etc.
+   - Keep it clean: Hero + carousel + optional short explanation/footer.
+
+DATA/API REQUIREMENTS
+1) Add (or ensure existing) endpoint:
+   GET /api/home/newest?limit=7
+   Returns array of listing summaries:
+   - id, titleEn, prefecture, municipality, locality, priceJpy, priceType, ldk, houseSqm, landSqm, photos, listedAt, lastSeenAt, status
+   - Only status='active'
+2) If the search page already exists:
+   - Home search form should navigate to /search?q=<user_input>
+   - The search page should not apply any hidden defaults; it should use q only unless the user sets filters manually.
+
+STYLING GUIDELINES (match “Zillow-like” feel without copying)
+- Clean, modern, lots of whitespace
+- Big bold hero headline
+- Rounded search bar with subtle shadow
+- Carousel cards with rounded corners, light borders, subtle hover lift
+- Responsive:
+  - Mobile: hero text smaller, carousel becomes swipeable
+  - Desktop: hero + carousel like Zillow layout
+
+DELIVERABLES / TESTS
+A) Home page visually updated with:
+   - Buy-only header
+   - Hero image + headline + search bar
+   - “Newest homes” carousel with exactly 7 cards
+B) API test:
+   - Hitting /api/home/newest returns 7 items (or fewer if DB has fewer) and only active listings.
+C) Functional test:
+   - Search bar routes to /search?q=...
+   - Carousel cards open correct listing detail page
+D) Ensure NO nav links or pages exist for Rent/Sell/Mortgage/Agents.
+
+IMPLEMENTATION NOTES
+- Do not introduce auth.
+- Do not add default filters anywhere on the homepage.
+- Use existing `listings` table only (do not query listingVariants directly for the home page).
+- If listedAt is often null, set it during sync_listings going forward OR compute “newness” using lastSeenAt.

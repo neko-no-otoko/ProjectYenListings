@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import HomePage from "@/pages/home";
+import SearchPage from "@/pages/search";
 import ListingDetailPage from "@/pages/listing-detail";
 import NotFound from "@/pages/not-found";
 
@@ -12,6 +13,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={HomePage} />
+      <Route path="/search" component={SearchPage} />
       <Route path="/listing/:id" component={ListingDetailPage} />
       <Route component={NotFound} />
     </Switch>
@@ -20,7 +22,7 @@ function Router() {
 
 function App() {
   return (
-    <ThemeProvider defaultTheme="light" storageKey="akiya-ui-theme">
+    <ThemeProvider defaultTheme="light" storageKey="yenlow-ui-theme">
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <Toaster />
