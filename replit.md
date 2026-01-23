@@ -86,10 +86,24 @@ The ingestion pipeline uses a unified connector interface pattern:
 4. Normalize addresses and dedupe via haversine proximity (100m threshold)
 5. Translate JP→EN via OpenAI/DeepL (cached by hash)
 6. Link listing variants to canonical property entities
+7. **sync_listings** - Materialize propertyEntities + listingVariants → listings table
+
+**sync_listings Materialization Job:**
+- Uses advisory lock "sync_listings" for concurrency control
+- Tracks cursor via syncCursors table to process only changed entities
+- Detects changes via propertyEntities.updatedAt and listingVariants.lastSeenAt
+- Primary variant selection (deterministic order):
+  - translateStatus: completed > pending > failed > skipped
+  - hasLand: true > null > false
+  - lastSeenAt: newest first
+  - sourceType: lifull > athome > ckan_akiya > manual
+- Field mapping: title/desc from primary, location from entity, price = MIN across variants
+- Status: "delisted" when no active variants remain
+- Scheduled every 30 minutes (after translation job)
 
 **Files:**
 - `server/lib/connectors/` - Connector implementations
-- `server/lib/ingestion/` - Rate limiting, HTTP client, upsert, dedupe
+- `server/lib/ingestion/` - Rate limiting, HTTP client, upsert, dedupe, syncListings
 - `server/lib/translate/` - Translation provider interface
 - `server/adminRoutes.ts` - Admin API for monitoring/triggers
 

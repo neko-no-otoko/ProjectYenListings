@@ -4,7 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const priceTypeEnum = pgEnum("price_type", ["transfer_fee", "purchase_price", "unknown"]);
-export const listingStatusEnum = pgEnum("listing_status", ["active", "inactive", "unknown"]);
+export const listingStatusEnum = pgEnum("listing_status", ["active", "inactive", "delisted", "unknown"]);
 export const sourceTypeEnum = pgEnum("source_type", ["reinfolib_txn", "ckan_akiya", "lifull", "athome", "manual"]);
 export const translateStatusEnum = pgEnum("translate_status", ["pending", "completed", "failed", "skipped"]);
 export const contentTypeEnum = pgEnum("content_type", ["json", "csv", "xlsx", "xml", "unknown"]);

@@ -5,6 +5,7 @@ import { reinfolibConnector } from "../connectors/reinfolib/jobs";
 import { lifullConnector } from "../connectors/partners/lifull/jobs";
 import { atHomeConnector } from "../connectors/partners/athome/jobs";
 import { runTranslateJob } from "../translate/jobs";
+import { runSyncListingsJob } from "./syncListings";
 import type { JobResult, ScheduledJob } from "../connectors/types";
 import { getEnvString } from "../connectors/index";
 
@@ -89,6 +90,12 @@ const scheduledJobs: ScheduledJob[] = [
     name: "translate",
     cronExpression: "*/30 * * * *",
     handler: runTranslateJob,
+    enabled: true,
+  },
+  {
+    name: "sync-listings",
+    cronExpression: getEnvString("INGESTION_CRON_SYNC_LISTINGS", "*/30 * * * *"),
+    handler: runSyncListingsJob,
     enabled: true,
   },
 ];

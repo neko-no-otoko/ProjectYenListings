@@ -12,6 +12,7 @@ import { eq, desc, sql } from "drizzle-orm";
 import { syncCursors } from "@shared/schema";
 import { getConnectorStatuses } from "./lib/connectors/index";
 import { runJob, getScheduledJobs, getJobStatus, startScheduler, stopScheduler } from "./lib/ingestion/scheduler";
+import { runSyncListingsJob, previewSyncListings } from "./lib/ingestion/syncListings";
 
 export const adminRouter = Router();
 
@@ -306,6 +307,43 @@ adminRouter.get("/verify-schema", async (_req, res) => {
         primaryVariantIdCheck.rows[0]?.exists === true &&
         indexesCheck.rows.length === 2
     });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.get("/sync/dry-run", async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 5, 100);
+    const previews = await previewSyncListings(limit);
+    res.json({ 
+      previews,
+      count: previews.length,
+      message: `Dry run preview of ${previews.length} entities (no changes made)`
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.post("/sync/listings", async (_req, res) => {
+  try {
+    res.json({ message: "Sync listings job started", status: "running" });
+    
+    runSyncListingsJob().then(result => {
+      console.log("[Admin] Sync listings result:", result);
+    }).catch(error => {
+      console.error("[Admin] Sync listings error:", error);
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+adminRouter.get("/sync/listings", async (_req, res) => {
+  try {
+    const result = await runSyncListingsJob();
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

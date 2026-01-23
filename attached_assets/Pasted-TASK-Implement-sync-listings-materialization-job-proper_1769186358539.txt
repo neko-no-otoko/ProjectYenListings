@@ -1,0 +1,44 @@
+TASK: Implement sync_listings materialization job: propertyEntities + listingVariants -> listings.
+
+REQUIREMENTS:
+1) Add a new job "sync_listings" that:
+   - uses advisory lock "sync_listings"
+   - uses syncCursors row name="sync_listings"
+   - finds changed propertyEntityIds since cursor via:
+       a) propertyEntities.updatedAt > cursor
+       b) listingVariants.lastSeenAt > cursor
+   - for each changed entity:
+       - fetch active variants where sourceType != 'reinfolib_txn'
+       - if no active variants: set listings.status='delisted' if row exists, otherwise do nothing
+       - select PRIMARY variant deterministically:
+           priority order:
+             translateStatus='done' > 'pending' > 'failed'
+             hasLand=true > null > false
+             newest lastSeenAt
+             sourceType priority: lifull > athome > ckan_akiya > manual
+       - write/UPSERT into listings with id = propertyEntity.id, and set primaryVariantId
+       - map fields:
+           titleEn required: primary.titleEn ?? fallback primary.titleJp ?? "Untitled"
+           titleOriginal: primary.titleJp
+           descriptionEn: primary.descEn
+           descriptionOriginal: primary.descJp
+           prefecture/municipality/locality/address*: from propertyEntities canonical fields
+           lat/lon: propertyEntities.canonicalLat/Lon
+           ldk/houseSqm/landSqm/yearBuilt/hasLand: from primary (buildingAreaM2->houseSqm, landAreaM2->landSqm)
+           priceJpy: choose MIN price among active variants if any non-null, else 0
+           status/lastSeenAt: from primary
+       - recompute nearestAirport* if lat/lon present (reuse existing airport utility)
+2) Cursor advances only after successful run.
+3) Add /api/admin/sync/listings trigger endpoint (Bearer protected in prod like other admin routes).
+4) Schedule sync_listings to run after translation job (or every 30m).
+
+DELIVERABLES / TESTS:
+A) A test route /api/admin/sync/dry-run?limit=5 that returns:
+   - entityId, chosenPrimaryVariantId, merged price, titleEn, status
+   WITHOUT writing to DB.
+B) A test script that:
+   - calls dry-run
+   - calls actual sync
+   - queries listings count and prints first 5 rows.
+C) Provide SQL checks:
+   - count(*) from listings where id in (select id from propertyEntities) increases after sync.
