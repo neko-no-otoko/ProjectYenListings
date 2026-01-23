@@ -91,13 +91,25 @@ export default function ListingDetailPage() {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
             <Link href="/">
               <Button variant="ghost" size="sm" data-testid="button-back">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Search
               </Button>
             </Link>
+            {listing.sourceUrl && (
+              <a
+                href={listing.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="outline" size="sm" data-testid="button-view-source">
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  View Original Source
+                </Button>
+              </a>
+            )}
           </div>
         </div>
       </header>
