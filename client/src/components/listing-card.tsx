@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ConditionBadge } from "@/components/condition-badge";
-import { formatPrice, formatArea } from "@/lib/constants";
+import { formatPriceUsd, formatHouseSqft, formatLandSqft, formatDistanceMiles } from "@/lib/conversions";
 import { MapPin, Home, Maximize, Plane, Calendar } from "lucide-react";
 import type { Listing } from "@shared/schema";
 
@@ -44,7 +44,7 @@ export function ListingCard({ listing }: ListingCardProps) {
           </div>
           <div className="absolute bottom-2 left-2">
             <span className="bg-black/70 text-white px-2 py-1 rounded text-lg font-semibold" data-testid={`text-price-${listing.id}`}>
-              {formatPrice(listing.priceJpy || 0)}
+              {formatPriceUsd(listing.priceJpy)}
             </span>
           </div>
         </div>
@@ -69,11 +69,11 @@ export function ListingCard({ listing }: ListingCardProps) {
             </div>
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <Maximize className="h-4 w-4" />
-              <span>{formatArea(listing.houseSqm)}</span>
+              <span>{formatHouseSqft(listing.houseSqm)}</span>
             </div>
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <Maximize className="h-4 w-4" />
-              <span>Land: {formatArea(listing.landSqm)}</span>
+              <span>Land: {formatLandSqft(listing.landSqm)}</span>
             </div>
             {listing.yearBuilt && (
               <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -87,7 +87,7 @@ export function ListingCard({ listing }: ListingCardProps) {
             <div className="mt-3 pt-3 border-t flex items-center gap-1.5 text-sm text-muted-foreground">
               <Plane className="h-4 w-4" />
               <span>
-                {listing.nearestAirportKm?.toFixed(0)} km to {listing.nearestAirportName}
+                {formatDistanceMiles(listing.nearestAirportKm)} to {listing.nearestAirportName}
               </span>
             </div>
           )}

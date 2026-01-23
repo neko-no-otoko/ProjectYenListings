@@ -14,9 +14,9 @@ import type { SearchFilters as SearchFiltersType, Listing } from "@shared/schema
 export default function HomePage() {
   const [, setLocation] = useLocation();
   const [filters, setFilters] = useState<SearchFiltersType>({
-    maxPrice: 150000,
-    mustHaveLand: true,
-    includeUnknownLand: false,
+    maxPrice: undefined,
+    mustHaveLand: false,
+    includeUnknownLand: true,
     sortBy: "price_asc",
     page: 1,
     limit: 20,

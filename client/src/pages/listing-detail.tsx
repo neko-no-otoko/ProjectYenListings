@@ -8,7 +8,8 @@ import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ConditionBadge } from "@/components/condition-badge";
 import { ListingMap } from "@/components/listing-map";
-import { formatPrice, formatArea, CONDITION_LABELS } from "@/lib/constants";
+import { CONDITION_LABELS } from "@/lib/constants";
+import { formatPriceUsd, formatHouseSqft, formatLandSqft, formatDistanceMiles, kmToMiles } from "@/lib/conversions";
 import {
   ArrowLeft,
   MapPin,
@@ -195,7 +196,7 @@ export default function ListingDetailPage() {
                   </div>
                   <div className="text-right">
                     <div className="text-3xl font-bold text-primary" data-testid="text-price">
-                      {formatPrice(listing.priceJpy || 0)}
+                      {formatPriceUsd(listing.priceJpy)}
                     </div>
                     <div className="text-sm text-muted-foreground">
                       {listing.priceType === "transfer_fee"
@@ -235,12 +236,12 @@ export default function ListingDetailPage() {
                   </div>
                   <div className="p-4 bg-muted rounded-lg text-center">
                     <Building className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
-                    <div className="font-semibold">{formatArea(listing.houseSqm)}</div>
+                    <div className="font-semibold">{formatHouseSqft(listing.houseSqm)}</div>
                     <div className="text-xs text-muted-foreground">House Size</div>
                   </div>
                   <div className="p-4 bg-muted rounded-lg text-center">
                     <TreePine className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
-                    <div className="font-semibold">{formatArea(listing.landSqm)}</div>
+                    <div className="font-semibold">{formatLandSqft(listing.landSqm)}</div>
                     <div className="text-xs text-muted-foreground">Land Size</div>
                   </div>
                   <div className="p-4 bg-muted rounded-lg text-center">
@@ -376,7 +377,7 @@ export default function ListingDetailPage() {
                     {listing.nearestAirportIata && `(${listing.nearestAirportIata})`}
                   </div>
                   <div className="mt-2 text-2xl font-bold text-primary">
-                    {listing.nearestAirportKm?.toFixed(0)} km
+                    {formatDistanceMiles(listing.nearestAirportKm)}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     Approximate driving distance
@@ -397,7 +398,7 @@ export default function ListingDetailPage() {
                       : "Purchase Price"}
                   </span>
                   <span className="font-semibold">
-                    {formatPrice(listing.priceJpy || 0)}
+                    {formatPriceUsd(listing.priceJpy)}
                   </span>
                 </div>
                 <Separator />

@@ -10,6 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { PREFECTURES, ISLANDS, SORT_OPTIONS } from "@/lib/constants";
 import { Search, ChevronDown, X, Filter } from "lucide-react";
 import type { SearchFilters as SearchFiltersType } from "@shared/schema";
+import { PRICE_STEPS, jpyToSliderValue, sliderValueToJpy, getPriceLabel, sqmToSqft } from "@/lib/conversions";
 
 interface SearchFiltersProps {
   filters: SearchFiltersType;
@@ -27,13 +28,20 @@ export function SearchFilters({ filters, onFiltersChange, onSearch, isLoading }:
 
   const clearFilters = () => {
     onFiltersChange({
-      maxPrice: 150000,
-      mustHaveLand: true,
-      includeUnknownLand: false,
+      maxPrice: undefined,
+      mustHaveLand: false,
+      includeUnknownLand: true,
       sortBy: "price_asc",
       page: 1,
       limit: 20,
     });
+  };
+
+  const priceSliderValue = jpyToSliderValue(filters.maxPrice);
+
+  const handlePriceChange = (values: number[]) => {
+    const newMaxPrice = sliderValueToJpy(values[0]);
+    updateFilter("maxPrice", newMaxPrice);
   };
 
   const activeFiltersCount = [
@@ -117,19 +125,19 @@ export function SearchFilters({ filters, onFiltersChange, onSearch, isLoading }:
         </div>
 
         <div className="space-y-2">
-          <Label>Max Price: ¥{filters.maxPrice?.toLocaleString()}</Label>
+          <Label>Max Price: {getPriceLabel(priceSliderValue)}</Label>
           <Slider
-            value={[filters.maxPrice || 150000]}
-            onValueChange={([v]) => updateFilter("maxPrice", v)}
-            max={150000}
+            value={[priceSliderValue]}
+            onValueChange={handlePriceChange}
+            max={PRICE_STEPS.length - 1}
             min={0}
-            step={5000}
+            step={1}
             className="py-2"
             data-testid="slider-max-price"
           />
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>¥0</span>
-            <span>¥150,000</span>
+            <span>$0</span>
+            <span>Any</span>
           </div>
         </div>
 
@@ -162,50 +170,50 @@ export function SearchFilters({ filters, onFiltersChange, onSearch, isLoading }:
           <CollapsibleContent className="space-y-4 pt-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label htmlFor="minHouseSqm">Min House (m²)</Label>
+                <Label htmlFor="minHouseSqft">Min House (sq ft)</Label>
                 <Input
-                  id="minHouseSqm"
+                  id="minHouseSqft"
                   type="number"
                   placeholder="0"
-                  value={filters.minHouseSqm || ""}
-                  onChange={(e) => updateFilter("minHouseSqm", e.target.value ? Number(e.target.value) : undefined)}
-                  data-testid="input-min-house-sqm"
+                  value={filters.minHouseSqm ? Math.round(filters.minHouseSqm * 10.7639) : ""}
+                  onChange={(e) => updateFilter("minHouseSqm", e.target.value ? Math.round(Number(e.target.value) / 10.7639) : undefined)}
+                  data-testid="input-min-house-sqft"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="maxHouseSqm">Max House (m²)</Label>
+                <Label htmlFor="maxHouseSqft">Max House (sq ft)</Label>
                 <Input
-                  id="maxHouseSqm"
+                  id="maxHouseSqft"
                   type="number"
                   placeholder="Any"
-                  value={filters.maxHouseSqm || ""}
-                  onChange={(e) => updateFilter("maxHouseSqm", e.target.value ? Number(e.target.value) : undefined)}
-                  data-testid="input-max-house-sqm"
+                  value={filters.maxHouseSqm ? Math.round(filters.maxHouseSqm * 10.7639) : ""}
+                  onChange={(e) => updateFilter("maxHouseSqm", e.target.value ? Math.round(Number(e.target.value) / 10.7639) : undefined)}
+                  data-testid="input-max-house-sqft"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label htmlFor="minLandSqm">Min Land (m²)</Label>
+                <Label htmlFor="minLandSqft">Min Land (sq ft)</Label>
                 <Input
-                  id="minLandSqm"
+                  id="minLandSqft"
                   type="number"
                   placeholder="0"
-                  value={filters.minLandSqm || ""}
-                  onChange={(e) => updateFilter("minLandSqm", e.target.value ? Number(e.target.value) : undefined)}
-                  data-testid="input-min-land-sqm"
+                  value={filters.minLandSqm ? Math.round(filters.minLandSqm * 10.7639) : ""}
+                  onChange={(e) => updateFilter("minLandSqm", e.target.value ? Math.round(Number(e.target.value) / 10.7639) : undefined)}
+                  data-testid="input-min-land-sqft"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="maxLandSqm">Max Land (m²)</Label>
+                <Label htmlFor="maxLandSqft">Max Land (sq ft)</Label>
                 <Input
-                  id="maxLandSqm"
+                  id="maxLandSqft"
                   type="number"
                   placeholder="Any"
-                  value={filters.maxLandSqm || ""}
-                  onChange={(e) => updateFilter("maxLandSqm", e.target.value ? Number(e.target.value) : undefined)}
-                  data-testid="input-max-land-sqm"
+                  value={filters.maxLandSqm ? Math.round(filters.maxLandSqm * 10.7639) : ""}
+                  onChange={(e) => updateFilter("maxLandSqm", e.target.value ? Math.round(Number(e.target.value) / 10.7639) : undefined)}
+                  data-testid="input-max-land-sqft"
                 />
               </div>
             </div>

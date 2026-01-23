@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { formatPrice } from "@/lib/constants";
+import { formatPriceUsd, jpyToUsd } from "@/lib/conversions";
 import { Maximize2, Minimize2, MapPin, AlertCircle } from "lucide-react";
 import type { Listing } from "@shared/schema";
 
@@ -95,13 +95,15 @@ export function ListingMap({
       hasValidCoords = true;
       bounds.extend([listing.lon, listing.lat]);
 
+      const usdPrice = jpyToUsd(listing.priceJpy);
+      const priceLabel = usdPrice === 0 ? "Free" : `$${usdPrice?.toLocaleString() || "N/A"}`;
       const el = document.createElement("div");
       el.className = "listing-marker";
       el.innerHTML = `
         <div class="relative cursor-pointer transform transition-transform hover:scale-110">
           <div class="bg-primary text-white px-2 py-1 rounded-md text-xs font-semibold shadow-lg whitespace-nowrap
             ${selectedListingId === listing.id ? "ring-2 ring-white ring-offset-2 ring-offset-primary" : ""}">
-            ${formatPrice(listing.priceJpy || 0).replace("¥", "").replace(" (Free Transfer)", "")}
+            ${priceLabel}
           </div>
           <div class="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-primary rotate-45"></div>
         </div>
