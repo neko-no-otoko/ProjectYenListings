@@ -30,7 +30,7 @@ interface NewestListing {
   ldk: string | null;
   houseSqm: number | null;
   landSqm: number | null;
-  photos: string[] | null;
+  photos: Array<{ url: string; caption?: string; attribution?: string }> | null;
   listedAt: string | null;
   lastSeenAt: string | null;
   status: string | null;
@@ -199,7 +199,7 @@ export default function HomePage() {
             {newestListings.map((listing) => {
               const daysOnSite = getDaysOnSite(listing);
               const priceTypeBadge = getPriceTypeBadge(listing.priceType);
-              const photoUrl = listing.photos?.[0] || null;
+              const photoUrl = listing.photos?.[0]?.url || null;
               const location = [listing.prefecture, listing.municipality, listing.locality]
                 .filter(Boolean)
                 .join(", ");

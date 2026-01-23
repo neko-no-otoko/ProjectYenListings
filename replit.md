@@ -1,10 +1,16 @@
-# AkiyaFinder - Japan Akiya Real Estate Aggregator
+# YenLow - Japan Akiya Real Estate Aggregator
 
 ## Overview
 
-AkiyaFinder is a Zillow-like real estate aggregator web application for discovering affordable abandoned homes (akiya) with land in Japan. The platform aggregates listings from multiple third-party sources, providing English-first search, filtering, and detailed property information for homes priced under 150,000 JPY.
+YenLow is a Zillow-like real estate aggregator web application for discovering affordable abandoned homes (akiya) with land in Japan. The platform aggregates listings from multiple third-party sources, providing English-first search, filtering, and detailed property information with prices shown in USD and areas in imperial units (sq ft, miles).
 
 The application enables users to search properties by prefecture, island, municipality, price, size, condition, and other criteria. It displays results in both grid and map views with normalized property data including English translations, nearest airport distances, and condition assessments.
+
+**Frontend Features:**
+- Zillow-like homepage with hero section, search bar, and "Newest homes" carousel
+- Search page with filters, grid/map views
+- Listing detail pages with full property information
+- Buy-only navigation (no rent/sell/mortgage)
 
 ## User Preferences
 
