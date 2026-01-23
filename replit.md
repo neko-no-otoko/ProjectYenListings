@@ -146,6 +146,21 @@ The ingestion pipeline uses a unified connector interface pattern:
 - `INGESTION_RATE_LIMIT_PER_HOST` - Rate limit (default: 60 req/min)
 - `INGESTION_CRON_*` - Cron expressions for scheduled jobs
 - `ADMIN_API_TOKEN` - Bearer token for admin API access (required in production)
+- `SEED_FAKE_DATA` - Set to "true" to seed sample listings (default: false)
+
+### Ingestion Workflow
+To populate live listings from CKAN sources:
+```bash
+tsx scripts/ingest-ckan.ts    # Discover datasets from search.ckan.jp
+tsx scripts/sync-listings.ts  # Materialize listings from ingested data
+```
+
+### Live Listings Filter
+Frontend only displays "live" listings where:
+- `status = 'active'`
+- `lastSeenAt IS NOT NULL`
+
+A dev banner appears when no live listings exist, prompting the operator to run the ingestion workflow.
 
 ### Key NPM Packages
 - `@tanstack/react-query` - Async state management
