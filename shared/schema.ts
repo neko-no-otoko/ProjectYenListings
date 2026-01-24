@@ -233,6 +233,7 @@ export const ckanInstanceConfigSchema = z.object({
   baseUrl: z.string(),
   query: z.string().optional(),
   rows: z.number().default(100),
+  fieldMap: z.record(z.string(), z.string()).optional(),
 });
 
 export const fieldMapSchema = z.record(z.string(), z.string());
