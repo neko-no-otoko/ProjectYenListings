@@ -32,7 +32,10 @@ export class CkanInstanceConnector implements FeedConnector {
     const rows = config.rows || 100;
 
     try {
-      const searchUrl = `${config.baseUrl}/action/package_search?q=${encodeURIComponent(query)}&rows=${rows}`;
+      // Normalize baseUrl and construct API path
+      const baseUrl = config.baseUrl.replace(/\/$/, '');
+      const apiPath = baseUrl.includes('/api/3') ? '/action/package_search' : '/api/3/action/package_search';
+      const searchUrl = `${baseUrl}${apiPath}?q=${encodeURIComponent(query)}&rows=${rows}`;
       const response = await fetchWithRateLimit(searchUrl);
 
       if (!response.ok) {
