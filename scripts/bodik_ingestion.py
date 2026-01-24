@@ -89,6 +89,10 @@ FIELD_MAPPINGS = {
     "title": ["名称", "物件名", "title", "name", "タイトル", "施設名", "物件番号"],
 }
 
+# Photo/image field keys to search in CSV columns
+PHOTO_KEYS = ["画像", "外観写真", "写真1", "写真2", "写真3", "image_url", "thumbnail", 
+              "photo", "photo_url", "image", "写真", "外観", "物件写真"]
+
 # Structure type categories (ordered from most specific to least specific)
 STRUCTURE_CATEGORIES = [
     ("src", ["鉄骨鉄筋コンクリート", "SRC造", "SRC"]),
@@ -335,7 +339,50 @@ def extract_field_value(record: Dict[str, Any], field_name: str) -> Optional[str
     return None
 
 
-def transform_listing(raw_data: Dict[str, Any]) -> Dict[str, Any]:
+def extract_photos(row: Dict[str, Any], package_metadata: Optional[Dict[str, Any]] = None) -> List[str]:
+    """
+    Extract photo URLs from a record and optionally from package metadata.
+    
+    Searches for photos in:
+    1. CSV column fields (画像, 外観写真, 写真1, image_url, etc.)
+    2. Dataset resources with image formats (JPG, JPEG, PNG)
+    
+    Args:
+        row: Raw record dictionary from CKAN source
+        package_metadata: Optional CKAN package metadata with resources list
+        
+    Returns:
+        List of photo URLs found
+    """
+    photos: List[str] = []
+    
+    # 1. Check CSV Columns for photo URLs
+    for key in PHOTO_KEYS:
+        value = row.get(key)
+        if value:
+            if PANDAS_AVAILABLE:
+                try:
+                    if pd.isna(value):
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            url = str(value).strip()
+            if url and url.startswith(('http://', 'https://')):
+                photos.append(url)
+    
+    # 2. Check Dataset Resources for image files (if no photos in columns)
+    if not photos and package_metadata:
+        for res in package_metadata.get('resources', []):
+            res_format = res.get('format', '').upper()
+            if res_format in ['JPG', 'JPEG', 'PNG', 'GIF', 'WEBP']:
+                res_url = res.get('url', '')
+                if res_url:
+                    photos.append(res_url)
+    
+    return photos
+
+
+def transform_listing(raw_data: Dict[str, Any], package_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Transform raw Japanese CKAN listing data into standardized database format.
     
@@ -344,6 +391,7 @@ def transform_listing(raw_data: Dict[str, Any]) -> Dict[str, Any]:
     
     Args:
         raw_data: Raw record dictionary from CKAN source
+        package_metadata: Optional CKAN package metadata for photo extraction
         
     Returns:
         Standardized dictionary with the following fields:
@@ -356,6 +404,7 @@ def transform_listing(raw_data: Dict[str, Any]) -> Dict[str, Any]:
             - layout: str or None (e.g., "3LDK")
             - listing_type: str or None
             - structure: str or None ("wood", "steel", "rc", "src")
+            - photos: list of photo URLs
             - raw_data: str (original JSON preserved)
     """
     # Extract raw field values
@@ -369,6 +418,9 @@ def transform_listing(raw_data: Dict[str, Any]) -> Dict[str, Any]:
     listing_type_raw = extract_field_value(raw_data, "listing_type")
     structure_raw = extract_field_value(raw_data, "structure")
     
+    # Extract photos from row and package metadata
+    photos = extract_photos(raw_data, package_metadata)
+    
     # Transform and normalize values
     transformed = {
         "title": title_raw,
@@ -380,6 +432,7 @@ def transform_listing(raw_data: Dict[str, Any]) -> Dict[str, Any]:
         "layout": layout_raw,
         "listing_type": listing_type_raw,
         "structure": extract_structure_category(structure_raw),
+        "photos": photos if photos else None,
         "raw_data": json.dumps(raw_data, ensure_ascii=False, default=str),
     }
     
