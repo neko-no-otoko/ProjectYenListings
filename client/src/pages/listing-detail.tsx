@@ -27,12 +27,19 @@ import {
 import type { Listing } from "@shared/schema";
 import { useState } from "react";
 
+interface TranslatedListing extends Listing {
+  titleDisplay?: string;
+  locationDisplay?: string;
+  prefectureEn?: string | null;
+  islandEn?: string | null;
+}
+
 export default function ListingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [showOriginal, setShowOriginal] = useState(false);
 
-  const { data: listing, isLoading, error } = useQuery<Listing>({
+  const { data: listing, isLoading, error } = useQuery<TranslatedListing>({
     queryKey: ["/api/listings", id],
     queryFn: async () => {
       const res = await fetch(`/api/listings/${id}`);
@@ -200,9 +207,7 @@ export default function ListingDetailPage() {
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <MapPin className="h-4 w-4 flex-shrink-0" />
                       <span>
-                        {[listing.municipality, listing.prefecture, listing.island]
-                          .filter(Boolean)
-                          .join(", ")}
+                        {listing.locationDisplay}
                       </span>
                     </div>
                   </div>
@@ -360,14 +365,12 @@ export default function ListingDetailPage() {
                   <div>
                     <div className="text-sm text-muted-foreground">Region</div>
                     <div className="font-medium">
-                      {[listing.municipality, listing.prefecture]
-                        .filter(Boolean)
-                        .join(", ")}
+                      {listing.locationDisplay}
                     </div>
                   </div>
                   <div>
                     <div className="text-sm text-muted-foreground">Island</div>
-                    <div className="font-medium">{listing.island || "—"}</div>
+                    <div className="font-medium">{listing.islandEn || listing.island || "—"}</div>
                   </div>
                 </div>
               </CardContent>
