@@ -13,6 +13,9 @@ Features:
 - Downloads and parses static files via pandas
 - SQLite storage with deduplication
 - Resilient error handling
+- Japanese era year conversion (昭和/平成/令和)
+- Unit normalization (Tsubo → m², price cleanup)
+- Field mapping from Japanese to English
 """
 
 import sqlite3
@@ -21,9 +24,9 @@ import json
 import hashlib
 import logging
 import io
-import tempfile
+import re
 from datetime import datetime
-from typing import Optional, Dict, List, Any, Set
+from typing import Optional, Dict, List, Any, Set, Union
 from pathlib import Path
 
 try:
@@ -40,6 +43,353 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# DATA TRANSFORMATION CONSTANTS AND FUNCTIONS
+# =============================================================================
+
+# Japanese era start years (Gregorian)
+ERA_START_YEARS = {
+    "明治": 1868,  # Meiji
+    "大正": 1912,  # Taisho
+    "昭和": 1926,  # Showa
+    "平成": 1989,  # Heisei
+    "令和": 2019,  # Reiwa
+}
+
+# Tsubo to square meters conversion factor
+TSUBO_TO_SQM = 3.30579  # 1 tsubo = 3.30579 m²
+
+# Japanese field name mappings to standardized English field names
+FIELD_MAPPINGS = {
+    # Price fields
+    "price": ["価格", "希望価格", "売却価格", "金額", "売買価格", "賃料", "販売価格", "売出価格", "譲渡価格"],
+    
+    # Location fields
+    "full_location": ["所在地", "住所", "位置", "物件所在地", "物件住所", "所在", "地番", "住所地番"],
+    
+    # House size fields
+    "house_size": ["延床面積", "建物面積", "床面積", "建築面積", "専有面積", "延べ床面積"],
+    
+    # Land size fields
+    "land_size": ["土地面積", "敷地面積", "宅地面積", "地積"],
+    
+    # Year built fields
+    "year_built": ["築年", "建築年", "建築時期", "築年月", "建築年月", "建築年次", "竣工年"],
+    
+    # Listing type fields
+    "listing_type": ["取引形態", "物件区分", "取引態様", "種別", "物件種別", "取引種別"],
+    
+    # Layout/rooms fields
+    "layout": ["間取り", "部屋数", "間取", "LDK", "部屋構成"],
+    
+    # Structure fields
+    "structure": ["構造", "建物構造", "主要構造", "主構造"],
+    
+    # Title/name fields
+    "title": ["名称", "物件名", "title", "name", "タイトル", "施設名", "物件番号"],
+}
+
+# Structure type categories (ordered from most specific to least specific)
+STRUCTURE_CATEGORIES = [
+    ("src", ["鉄骨鉄筋コンクリート", "SRC造", "SRC"]),
+    ("rc", ["鉄筋コンクリート", "RC造", "コンクリート造"]),
+    ("steel", ["鉄骨造", "S造", "鉄骨", "軽量鉄骨", "重量鉄骨", "スチール"]),
+    ("wood", ["木造", "木質", "W造", "在来工法", "木構造"]),
+]
+
+
+def convert_era_to_year(date_str: Optional[str]) -> Optional[int]:
+    """
+    Convert Japanese era dates to Gregorian year.
+    
+    Examples:
+        '昭和56年' -> 1981
+        '平成元年' -> 1989
+        '令和3年' -> 2021
+        '1985年' -> 1985
+        '昭和56年3月' -> 1981
+    
+    Args:
+        date_str: Japanese date string with era or Gregorian year
+        
+    Returns:
+        Gregorian year as integer, or None if cannot parse
+    """
+    if not date_str or not isinstance(date_str, str):
+        return None
+    
+    date_str = date_str.strip()
+    
+    # Try direct Gregorian year extraction (e.g., "1985年" or "1985")
+    gregorian_match = re.search(r'(19\d{2}|20\d{2})', date_str)
+    if gregorian_match and not any(era in date_str for era in ERA_START_YEARS.keys()):
+        return int(gregorian_match.group(1))
+    
+    # Try Japanese era conversion
+    for era, start_year in ERA_START_YEARS.items():
+        if era in date_str:
+            # Match patterns like "昭和56年" or "昭和元年"
+            era_pattern = rf'{era}(\d+|元)年?'
+            match = re.search(era_pattern, date_str)
+            if match:
+                year_part = match.group(1)
+                if year_part == "元":
+                    # 元年 means Year 1
+                    era_year = 1
+                else:
+                    era_year = int(year_part)
+                return start_year + era_year - 1
+    
+    return None
+
+
+def normalize_area_to_sqm(value: Optional[Union[str, float, int]]) -> Optional[float]:
+    """
+    Normalize area values to square meters.
+    
+    Handles:
+        - Tsubo (坪) -> multiply by 3.30579
+        - Plain numeric values assumed to be m²
+        - Strings with units like "100㎡", "30坪", "50m2"
+    
+    Args:
+        value: Area value as string or number
+        
+    Returns:
+        Area in square meters, or None if cannot parse
+    """
+    if value is None:
+        return None
+    
+    # Handle numeric types directly
+    if isinstance(value, (int, float)):
+        if PANDAS_AVAILABLE:
+            try:
+                if pd.isna(value):
+                    return None
+            except (TypeError, ValueError):
+                pass
+        return float(value) if value > 0 else None
+    
+    if not isinstance(value, str):
+        return None
+    
+    value = value.strip()
+    if not value:
+        return None
+    
+    # Check for Tsubo (坪)
+    is_tsubo = "坪" in value
+    
+    # Remove units and extract numeric value
+    # Clean up common patterns - use specific patterns to avoid removing digits
+    cleaned = value.replace(",", "").replace("，", "")
+    # Remove unit patterns (order matters: m2 before m)
+    cleaned = re.sub(r'㎡|m²|m2|平方メートル|平米|坪', '', cleaned)
+    cleaned = re.sub(r'[約程度以上以下未満]', '', cleaned)
+    cleaned = cleaned.strip()
+    
+    # Extract numeric part (handle ranges like "100-120" by taking first value)
+    numeric_match = re.search(r'(\d+(?:\.\d+)?)', cleaned)
+    if not numeric_match:
+        return None
+    
+    try:
+        area = float(numeric_match.group(1))
+        if is_tsubo:
+            area *= TSUBO_TO_SQM
+        return area if area > 0 else None
+    except (ValueError, TypeError):
+        return None
+
+
+def normalize_price_to_int(value: Optional[Union[str, float, int]]) -> Optional[int]:
+    """
+    Normalize price values to integer (Japanese Yen).
+    
+    Handles:
+        - Strings with commas: "1,000,000円" -> 1000000
+        - Strings with 万 (10,000 units): "100万円" -> 1000000
+        - Strings with 億 (100,000,000 units): "1億円" -> 100000000
+        - Plain numbers
+        - "無料", "0円", etc. -> 0
+    
+    Args:
+        value: Price value as string or number
+        
+    Returns:
+        Price in JPY as integer, or None if cannot parse
+    """
+    if value is None:
+        return None
+    
+    # Handle numeric types
+    if isinstance(value, (int, float)):
+        if PANDAS_AVAILABLE:
+            try:
+                if pd.isna(value):
+                    return None
+            except (TypeError, ValueError):
+                pass
+        return int(value) if value >= 0 else None
+    
+    if not isinstance(value, str):
+        return None
+    
+    value = value.strip()
+    if not value:
+        return None
+    
+    # Free / no charge patterns (use regex for exact matching)
+    free_patterns = [r'^無料', r'^無償', r'^0円$', r'^譲渡$', r'^要相談']
+    if any(re.search(pattern, value) for pattern in free_patterns):
+        return 0
+    
+    # Remove currency symbols and common suffixes
+    cleaned = value.replace(",", "").replace("，", "")
+    cleaned = re.sub(r'[円¥]', '', cleaned)
+    cleaned = re.sub(r'税[込別]?', '', cleaned)
+    cleaned = cleaned.strip()
+    
+    total = 0
+    
+    # Handle 億 (100 million)
+    oku_match = re.search(r'(\d+(?:\.\d+)?)\s*億', cleaned)
+    if oku_match:
+        total += float(oku_match.group(1)) * 100_000_000
+        cleaned = cleaned.replace(oku_match.group(0), '')
+    
+    # Handle 万 (10 thousand)
+    man_match = re.search(r'(\d+(?:\.\d+)?)\s*万', cleaned)
+    if man_match:
+        total += float(man_match.group(1)) * 10_000
+        cleaned = cleaned.replace(man_match.group(0), '')
+    
+    # Handle remaining plain numbers (after stripping 万/億 patterns)
+    # If no 万/億 were found, try to parse the entire cleaned string as a number
+    if total == 0:
+        plain_match = re.search(r'(\d+(?:\.\d+)?)', cleaned)
+        if plain_match:
+            total = float(plain_match.group(1))
+    
+    # Return the total, or None if we couldn't parse anything meaningful
+    if total > 0:
+        return int(total)
+    elif total == 0:
+        # Only return 0 if explicitly free/no charge, otherwise None
+        return 0 if any(re.search(p, value) for p in free_patterns) else None
+    else:
+        return None
+
+
+def extract_structure_category(value: Optional[str]) -> Optional[str]:
+    """
+    Extract structure category from Japanese structure description.
+    
+    Args:
+        value: Structure description in Japanese
+        
+    Returns:
+        Standardized category: "wood", "steel", "rc", "src", or None
+    """
+    if not value or not isinstance(value, str):
+        return None
+    
+    value = value.strip()
+    
+    # STRUCTURE_CATEGORIES is ordered from most specific to least specific
+    for category, patterns in STRUCTURE_CATEGORIES:
+        for pattern in patterns:
+            if pattern in value:
+                return category
+    
+    return None
+
+
+def extract_field_value(record: Dict[str, Any], field_name: str) -> Optional[str]:
+    """
+    Extract a field value from a record using the field mappings.
+    
+    Args:
+        record: Raw data record dictionary
+        field_name: Standardized field name (e.g., "price", "full_location")
+        
+    Returns:
+        Field value as string, or None if not found
+    """
+    if field_name not in FIELD_MAPPINGS:
+        return None
+    
+    for japanese_key in FIELD_MAPPINGS[field_name]:
+        if japanese_key in record:
+            value = record[japanese_key]
+            if value is not None:
+                if PANDAS_AVAILABLE:
+                    try:
+                        if pd.isna(value):
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+                return str(value).strip() if str(value).strip() else None
+    
+    return None
+
+
+def transform_listing(raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Transform raw Japanese CKAN listing data into standardized database format.
+    
+    Takes a raw JSON dictionary from BODIK and returns a cleaned, normalized
+    version ready for SQL database insertion.
+    
+    Args:
+        raw_data: Raw record dictionary from CKAN source
+        
+    Returns:
+        Standardized dictionary with the following fields:
+            - title: str or None
+            - full_location: str or None (original Japanese address)
+            - price_jpy: int or None (normalized to integer JPY)
+            - house_size_sqm: float or None (normalized to m²)
+            - land_size_sqm: float or None (normalized to m²)
+            - year_built: int or None (Gregorian year)
+            - layout: str or None (e.g., "3LDK")
+            - listing_type: str or None
+            - structure: str or None ("wood", "steel", "rc", "src")
+            - raw_data: str (original JSON preserved)
+    """
+    # Extract raw field values
+    title_raw = extract_field_value(raw_data, "title")
+    location_raw = extract_field_value(raw_data, "full_location")
+    price_raw = extract_field_value(raw_data, "price")
+    house_size_raw = extract_field_value(raw_data, "house_size")
+    land_size_raw = extract_field_value(raw_data, "land_size")
+    year_built_raw = extract_field_value(raw_data, "year_built")
+    layout_raw = extract_field_value(raw_data, "layout")
+    listing_type_raw = extract_field_value(raw_data, "listing_type")
+    structure_raw = extract_field_value(raw_data, "structure")
+    
+    # Transform and normalize values
+    transformed = {
+        "title": title_raw,
+        "full_location": location_raw,
+        "price_jpy": normalize_price_to_int(price_raw),
+        "house_size_sqm": normalize_area_to_sqm(house_size_raw),
+        "land_size_sqm": normalize_area_to_sqm(land_size_raw),
+        "year_built": convert_era_to_year(year_built_raw),
+        "layout": layout_raw,
+        "listing_type": listing_type_raw,
+        "structure": extract_structure_category(structure_raw),
+        "raw_data": json.dumps(raw_data, ensure_ascii=False, default=str),
+    }
+    
+    return transformed
+
+
+# =============================================================================
+# INGESTION CONSTANTS
+# =============================================================================
+
 BODIK_API_BASE = "https://data.bodik.jp/api/3/action"
 SEARCH_KEYWORDS = ["空き家", "空き家バンク", "住宅一覧"]
 ROWS_PER_PAGE = 100
@@ -55,6 +405,7 @@ BROWSER_HEADERS = {
 
 SUPPORTED_FORMATS = {"CSV", "XLSX", "JSON", "XLS"}
 
+# Legacy field keys (kept for backward compatibility)
 ADDRESS_FIELD_KEYS = ["所在地", "住所", "address", "location", "所在", "地番", "物件所在地", "物件住所"]
 PRICE_FIELD_KEYS = ["価格", "金額", "売買価格", "賃料", "price", "希望価格", "販売価格", "売却価格"]
 TITLE_FIELD_KEYS = ["名称", "物件名", "title", "name", "タイトル", "施設名", "物件番号"]
