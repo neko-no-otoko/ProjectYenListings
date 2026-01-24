@@ -202,7 +202,7 @@ export default function ListingDetailPage() {
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <CardTitle className="text-2xl mb-2" data-testid="text-listing-title">
-                      {listing.titleEn}
+                      {listing.titleDisplay || listing.titleEn}
                     </CardTitle>
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <MapPin className="h-4 w-4 flex-shrink-0" />

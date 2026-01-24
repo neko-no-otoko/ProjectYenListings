@@ -196,6 +196,10 @@ export async function translateListing(listing: {
   };
 }
 
+function containsJapanese(text: string): boolean {
+  return /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
+}
+
 export function getQuickTranslation(listing: {
   titleEn: string | null;
   prefecture: string | null;
@@ -206,17 +210,24 @@ export function getQuickTranslation(listing: {
   locationDisplay: string;
 } {
   let titleDisplay = listing.titleEn || "Untitled Property";
+  
   if (titleDisplay.startsWith("[BODIK]")) {
     titleDisplay = titleDisplay.replace(/^\[BODIK\]\s*/i, "").trim() || "Property Listing";
+  }
+  
+  if (containsJapanese(titleDisplay)) {
+    const prefectureEn = translatePrefecture(listing.prefecture);
+    if (prefectureEn) {
+      titleDisplay = `Property in ${prefectureEn}`;
+    } else {
+      titleDisplay = "Property in Japan";
+    }
   }
   
   const prefectureEn = translatePrefecture(listing.prefecture) || listing.prefecture;
   const islandEn = translateIsland(listing.island);
   
   const locationParts: string[] = [];
-  if (listing.municipality) {
-    locationParts.push(listing.municipality);
-  }
   if (prefectureEn) {
     locationParts.push(prefectureEn);
   }
