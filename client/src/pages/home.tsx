@@ -23,9 +23,14 @@ import yenlowLogo from "@assets/yenlow-logo.png";
 interface NewestListing {
   id: string;
   titleEn: string | null;
+  titleDisplay: string;
   prefecture: string | null;
+  prefectureEn: string | null;
   municipality: string | null;
   locality: string | null;
+  island: string | null;
+  islandEn: string | null;
+  locationDisplay: string;
   priceJpy: number | null;
   priceType: string | null;
   ldk: string | null;
@@ -198,9 +203,6 @@ export default function HomePage() {
               const daysOnSite = getDaysOnSite(listing);
               const priceTypeBadge = getPriceTypeBadge(listing.priceType);
               const photoUrl = listing.photos?.[0]?.url || null;
-              const location = [listing.prefecture, listing.municipality, listing.locality]
-                .filter(Boolean)
-                .join(", ");
 
               return (
                 <Card
@@ -267,7 +269,7 @@ export default function HomePage() {
                     
                     <div className="flex items-start gap-1 text-sm text-muted-foreground">
                       <MapPin className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                      <span className="line-clamp-2">{location || "Japan"}</span>
+                      <span className="line-clamp-2">{listing.locationDisplay}</span>
                     </div>
                   </div>
                 </Card>

@@ -49,6 +49,25 @@ The server structure includes:
 - `server/seed.ts` - Sample data seeding for airports and listings
 - `server/vite.ts` - Vite dev server integration
 - `server/static.ts` - Production static file serving
+- `server/lib/translate/translateService.ts` - Japanese→English translation layer
+
+### Translation Layer
+The application includes a translation service that converts Japanese property data to English for US/English-speaking users:
+
+**Synchronous Translations (lookup tables):**
+- Prefecture names: 宮崎県 → Miyazaki, 北海道 → Hokkaido, etc.
+- Island names: 本州 → Honshu, 沖縄本島 → Okinawa Main Island, etc.
+
+**Async Translations (OpenAI gpt-4o-mini):**
+- Property titles (strips [BODIK] prefix, translates Japanese)
+- Municipality/locality names (e.g., 草津市 → Kusatsu City)
+
+**API Response Fields:**
+All listing endpoints (`/api/search`, `/api/listings/:id`, `/api/home/newest`) return translated fields:
+- `titleDisplay`: English-friendly title
+- `locationDisplay`: Formatted location string (municipality, prefecture in English)
+- `prefectureEn`: English prefecture name
+- `islandEn`: English island name
 
 ### Data Model
 Core entities defined in `shared/schema.ts`:

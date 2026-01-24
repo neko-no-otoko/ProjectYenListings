@@ -4,6 +4,20 @@ import { storage } from "./storage";
 import { searchFiltersSchema, listings } from "@shared/schema";
 import { db } from "./db";
 import { sql, eq, and, desc, isNotNull } from "drizzle-orm";
+import { translatePrefecture, translateIsland, getQuickTranslation } from "./lib/translate/translateService";
+
+function applyTranslations<T extends { titleEn: string | null; prefecture: string | null; municipality: string | null; island: string | null }>(
+  listing: T
+): T & { prefectureEn: string | null; islandEn: string | null; titleDisplay: string; locationDisplay: string } {
+  const { titleDisplay, locationDisplay } = getQuickTranslation(listing);
+  return {
+    ...listing,
+    prefectureEn: translatePrefecture(listing.prefecture),
+    islandEn: translateIsland(listing.island),
+    titleDisplay,
+    locationDisplay,
+  };
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -35,7 +49,11 @@ export async function registerRoutes(
       const filters = searchFiltersSchema.parse(rawFilters);
       const results = await storage.searchListings(filters);
 
-      res.json(results);
+      const translatedListings = results.listings.map(applyTranslations);
+      res.json({
+        ...results,
+        listings: translatedListings,
+      });
     } catch (error) {
       console.error("Search error:", error);
       res.status(400).json({ error: "Invalid search parameters" });
@@ -50,7 +68,8 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Listing not found" });
       }
 
-      res.json(listing);
+      const translatedListing = applyTranslations(listing);
+      res.json(translatedListing);
     } catch (error) {
       console.error("Get listing error:", error);
       res.status(500).json({ error: "Failed to fetch listing" });
@@ -108,6 +127,7 @@ export async function registerRoutes(
           prefecture: listings.prefecture,
           municipality: listings.municipality,
           locality: listings.locality,
+          island: listings.island,
           priceJpy: listings.priceJpy,
           priceType: listings.priceType,
           ldk: listings.ldk,
@@ -130,7 +150,8 @@ export async function registerRoutes(
         )
         .limit(limit);
 
-      res.json(newestListings);
+      const translatedListings = newestListings.map(applyTranslations);
+      res.json(translatedListings);
     } catch (error) {
       console.error("Get newest listings error:", error);
       res.status(500).json({ error: "Failed to fetch newest listings" });
