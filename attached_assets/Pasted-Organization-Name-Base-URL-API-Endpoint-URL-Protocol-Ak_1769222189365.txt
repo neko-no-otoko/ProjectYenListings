@@ -1,0 +1,55 @@
+Organization_Name,Base_URL,API_Endpoint_URL,Protocol
+Akita Prefecture,https://ckan.pref.akita.lg.jp,https://ckan.pref.akita.lg.jp/api/3/action/package_list,HTTPS
+
+B Inc. Open Data Platform (ODP),https://ckan.odp.jig.jp,https://ckan.odp.jig.jp/api/3/action/package_list,HTTPS
+
+BODIK ODCS (multiple municipalities),https://odcs.bodik.jp,https://odcs.bodik.jp/api/3/action/package_list,HTTPS
+
+Daisen City,https://www.city.daisen.lg.jp/open-data,https://www.city.daisen.lg.jp/open-data/api/3/action/package_list,HTTPS
+
+Fukuoka Prefecture (and City),https://ckan.open-governmentdata.org,https://ckan.open-governmentdata.org/api/3/action/package_list,HTTPS
+
+Gifu Prefecture,https://gifu-opendata.pref.gifu.lg.jp,https://gifu-opendata.pref.gifu.lg.jp/api/3/action/package_list,HTTPS
+
+Himi City,https://od.city.himi.toyama.jp,https://od.city.himi.toyama.jp/api/3/action/package_list,HTTPS
+
+Ishikawa Prefecture,https://ckan.opendata.pref.ishikawa.lg.jp,https://ckan.opendata.pref.ishikawa.lg.jp/api/3/action/package_list,HTTPS
+
+J:COM Linkage Data Portal,https://ckan.linkage.jcom.co.jp,https://ckan.linkage.jcom.co.jp/api/3/action/package_list,HTTPS
+
+Kanagawa Prefecture,https://catalog.opendata.pref.kanagawa.jp,https://catalog.opendata.pref.kanagawa.jp/api/3/action/package_list,HTTPS
+
+Karatsu City,https://www.open-data-portal.jp/opendata,https://www.open-data-portal.jp/opendata/api/3/action/package_list,HTTPS
+
+Kashima City,https://kashima-open-data-portal.jp/opendata,https://kashima-open-data-portal.jp/opendata/api/3/action/package_list,HTTPS
+
+Kobe City,https://catalog.city.kobe.lg.jp,https://catalog.city.kobe.lg.jp/api/3/action/package_list,HTTPS
+
+Kyoto City,https://data.city.kyoto.lg.jp,https://data.city.kyoto.lg.jp/api/3/action/package_list,HTTPS
+
+Miyazaki Prefecture (Disaster CH),https://ckan.pref.miyazaki.lg.jp,https://ckan.pref.miyazaki.lg.jp/api/3/action/package_list,HTTPS
+
+NIED (SIP4D Project),https://catalog.bosai.go.jp,https://catalog.bosai.go.jp/api/3/action/package_list,HTTPS
+
+NII (Data Catalog Search),https://search.ckan.jp,https://search.ckan.jp/api/3/action/package_list,HTTPS
+
+Public Transport Open Data Center,https://ckan.odpt.org,https://ckan.odpt.org/api/3/action/package_list,HTTPS
+
+Shizuoka Prefecture,https://ckan.pref.shizuoka.jp,https://ckan.pref.shizuoka.jp/api/3/action/package_list,HTTPS
+
+Tokyo Metropolitan Government,https://catalog.data.metro.tokyo.lg.jp,https://catalog.data.metro.tokyo.lg.jp/api/3/action/package_list,HTTPS
+
+Toyama Prefecture (Data Platform),https://ckan.tdcp.pref.toyama.jp,https://ckan.tdcp.pref.toyama.jp/api/3/action/package_list,HTTPS
+
+Yamaguchi Prefecture,https://yamaguchi-opendata.jp/ckan,https://yamaguchi-opendata.jp/ckan/api/3/action/package_list,HTTPS
+
+Yokohama City,https://data.city.yokohama.lg.jp,https://data.city.yokohama.lg.jp/api/3/action/package_list,HTTPS
+
+Hokkaido Open Data Portal (HARP),https://www.harp.lg.jp/opendata/,https://www.harp.lg.jp/opendata/api/package_show?id=428f4151-4ebb-4a3c-9530-248b779739ee,HTTPS
+
+Aoi Mori Open Data Catalog (Aomori Prefecture),https://opendata.pref.aomori.lg.jp/,https://opendata.pref.aomori.lg.jp/api/package_show?id=312f6f39-1640-45c0-a1c6-f1fd930f2282,HTTPS
+
+Iwate Prefecture & Municipal Open Data (Data Eye),https://iwate.dataeye.jp/,N/A
+ (no 空き家/空き家バンク dataset ID identified),HTTPS
+Miyagi Prefecture & Municipal Open Data (Data Eye),https://miyagi.dataeye.jp/,N/A
+ (no 空き家/空き家バンク dataset ID identified),HTTPS
