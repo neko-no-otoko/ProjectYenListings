@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-BODIK CKAN Data Ingestion Tool
+BODIK CKAN Data Ingestion Tool (Enhanced)
 
 Connects to the BODIK CKAN API (https://data.bodik.jp/api/3/action/)
-to fetch akiya (vacant house) listings and store them in SQLite.
+to fetch akiya (vacant house) listings using wide-search logic.
 
 Features:
-- Browser-like headers to avoid HTML error responses
-- Drills down into CSV resources using datastore_search API
-- Robust error handling for HTML responses and 404s
-- JSON validation before parsing
+- Multi-keyword search: 空き家, 空き家バンク, 住宅一覧
+- Full pagination through all results
+- Handles CSV, XLSX, JSON resources
+- Uses datastore_search for active datastores
+- Downloads and parses static files via pandas
 - SQLite storage with deduplication
+- Resilient error handling
 """
 
 import sqlite3
@@ -18,9 +20,19 @@ import requests
 import json
 import hashlib
 import logging
+import io
+import tempfile
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Set
 from pathlib import Path
+
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    pd = None  # type: ignore
+    PANDAS_AVAILABLE = False
+    print("Warning: pandas not available. Static file parsing disabled.")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,7 +41,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BODIK_API_BASE = "https://data.bodik.jp/api/3/action"
-SEARCH_KEYWORD = "空き家"
+SEARCH_KEYWORDS = ["空き家", "空き家バンク", "住宅一覧"]
+ROWS_PER_PAGE = 100
 DB_PATH = Path(__file__).parent.parent / "data" / "bodik_akiya.db"
 
 BROWSER_HEADERS = {
@@ -40,37 +53,50 @@ BROWSER_HEADERS = {
     "Connection": "keep-alive",
 }
 
+SUPPORTED_FORMATS = {"CSV", "XLSX", "JSON", "XLS"}
+
+ADDRESS_FIELD_KEYS = ["所在地", "住所", "address", "location", "所在", "地番", "物件所在地", "物件住所"]
+PRICE_FIELD_KEYS = ["価格", "金額", "売買価格", "賃料", "price", "希望価格", "販売価格", "売却価格"]
+TITLE_FIELD_KEYS = ["名称", "物件名", "title", "name", "タイトル", "施設名", "物件番号"]
+
 
 class BodikIngestion:
     def __init__(self, db_path: Path = DB_PATH):
         self.db_path = db_path
         self.session = requests.Session()
         self.session.headers.update(BROWSER_HEADERS)
+        self.seen_dataset_ids: Set[str] = set()
         self._init_database()
 
     def _init_database(self):
-        """Initialize SQLite database with listings table."""
+        """Initialize SQLite database with enhanced schema."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        cursor.execute("DROP TABLE IF EXISTS listings")
+        
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS listings (
                 id TEXT PRIMARY KEY,
-                source_portal TEXT NOT NULL,
-                title TEXT,
+                source_municipality TEXT NOT NULL,
+                dataset_title TEXT,
+                property_address TEXT,
                 price TEXT,
-                location TEXT,
-                resource_url TEXT,
+                listing_url TEXT,
+                resource_id TEXT,
+                last_updated TIMESTAMP,
                 raw_data TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_source_portal ON listings(source_portal)
+            CREATE INDEX IF NOT EXISTS idx_source_municipality ON listings(source_municipality)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_resource_id ON listings(resource_id)
         """)
         
         conn.commit()
@@ -82,43 +108,31 @@ class BodikIngestion:
         content_type = response.headers.get("Content-Type", "")
         
         if "text/html" in content_type:
-            logger.warning("Received HTML response instead of JSON")
             return False
         
-        if "application/json" not in content_type and "text/json" not in content_type:
-            try:
-                text = response.text.strip()
-                if text.startswith("<") or text.startswith("<!"):
-                    logger.warning("Response appears to be HTML/XML")
-                    return False
-            except Exception:
-                pass
+        try:
+            text = response.text.strip()
+            if text.startswith("<") or text.startswith("<!"):
+                return False
+        except Exception:
+            pass
         
         return True
 
-    def _safe_request(self, url: str, params: Optional[Dict] = None) -> Optional[Dict]:
-        """Make a request with error handling and JSON validation."""
+    def _safe_request(self, url: str, params: Optional[Dict] = None, stream: bool = False) -> Optional[requests.Response]:
+        """Make a request with error handling."""
         try:
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=60, stream=stream)
             
             if response.status_code == 404:
-                logger.warning(f"404 Not Found: {url}")
+                logger.debug(f"404 Not Found: {url}")
                 return None
             
             if response.status_code != 200:
                 logger.warning(f"HTTP {response.status_code}: {url}")
                 return None
             
-            if not self._is_valid_json(response):
-                logger.error(f"Invalid JSON response from {url}")
-                return None
-            
-            try:
-                data = response.json()
-                return data
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON parse error: {e}")
-                return None
+            return response
                 
         except requests.exceptions.Timeout:
             logger.error(f"Request timeout: {url}")
@@ -130,220 +144,378 @@ class BodikIngestion:
             logger.error(f"Unexpected error: {e}")
             return None
 
-    def search_packages(self) -> List[Dict]:
-        """Search for akiya packages using package_search."""
-        url = f"{BODIK_API_BASE}/package_search"
-        params = {
-            "q": SEARCH_KEYWORD,
-            "rows": 100,
-        }
+    def _safe_json_request(self, url: str, params: Optional[Dict] = None) -> Optional[Dict]:
+        """Make a JSON API request with validation."""
+        response = self._safe_request(url, params)
         
-        logger.info(f"Searching for '{SEARCH_KEYWORD}' packages...")
-        result = self._safe_request(url, params)
+        if not response:
+            return None
         
-        if not result:
-            logger.error("Failed to search packages")
-            return []
+        if not self._is_valid_json(response):
+            logger.warning(f"Non-JSON response from {url}")
+            return None
         
-        if not result.get("success"):
-            logger.error(f"API returned error: {result.get('error', 'Unknown')}")
-            return []
-        
-        packages = result.get("result", {}).get("results", [])
-        logger.info(f"Found {len(packages)} packages")
-        return packages
+        try:
+            return response.json()
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parse error: {e}")
+            return None
 
-    def get_datastore_records(self, resource_id: str) -> List[Dict]:
-        """Fetch records from a resource using datastore_search."""
-        url = f"{BODIK_API_BASE}/datastore_search"
-        params = {
-            "resource_id": resource_id,
-            "limit": 1000,
-        }
+    def search_all_packages(self) -> List[Dict]:
+        """Search for packages across all keywords with full pagination."""
+        all_packages = []
         
-        result = self._safe_request(url, params)
+        for keyword in SEARCH_KEYWORDS:
+            logger.info(f"Searching for keyword: '{keyword}'")
+            start = 0
+            
+            while True:
+                url = f"{BODIK_API_BASE}/package_search"
+                params = {
+                    "q": keyword,
+                    "rows": ROWS_PER_PAGE,
+                    "start": start,
+                }
+                
+                result = self._safe_json_request(url, params)
+                
+                if not result or not result.get("success"):
+                    logger.warning(f"Failed to search at offset {start}")
+                    break
+                
+                results_data = result.get("result", {})
+                packages = results_data.get("results", [])
+                total_count = results_data.get("count", 0)
+                
+                if not packages:
+                    break
+                
+                for pkg in packages:
+                    pkg_id = pkg.get("id")
+                    if pkg_id and pkg_id not in self.seen_dataset_ids:
+                        self.seen_dataset_ids.add(pkg_id)
+                        all_packages.append(pkg)
+                
+                logger.info(f"  Fetched {start + len(packages)}/{total_count} packages for '{keyword}'")
+                
+                start += ROWS_PER_PAGE
+                if start >= total_count:
+                    break
         
-        if not result:
-            return []
-        
-        if not result.get("success"):
-            error = result.get("error", {})
-            if isinstance(error, dict) and error.get("__type") == "Validation Error":
-                logger.debug(f"Resource {resource_id} not in datastore")
-            else:
-                logger.warning(f"Datastore error for {resource_id}: {error}")
-            return []
-        
-        records = result.get("result", {}).get("records", [])
-        return records
+        logger.info(f"Total unique packages found: {len(all_packages)}")
+        return all_packages
 
-    def _extract_listing_fields(self, record: Dict, package: Dict, resource: Dict) -> Dict:
-        """Extract standardized fields from a raw record."""
-        title = None
-        price = None
-        location = None
+    def get_datastore_records(self, resource_id: str, limit: int = 32000) -> List[Dict]:
+        """Fetch records from a resource using datastore_search with pagination."""
+        all_records = []
+        offset = 0
+        page_size = 1000
         
-        title_keys = ["名称", "物件名", "title", "name", "タイトル", "施設名"]
-        for key in title_keys:
-            if key in record and record[key]:
-                title = str(record[key])
+        while True:
+            url = f"{BODIK_API_BASE}/datastore_search"
+            params = {
+                "resource_id": resource_id,
+                "limit": page_size,
+                "offset": offset,
+            }
+            
+            result = self._safe_json_request(url, params)
+            
+            if not result or not result.get("success"):
+                break
+            
+            records = result.get("result", {}).get("records", [])
+            if not records:
+                break
+            
+            all_records.extend(records)
+            offset += len(records)
+            
+            if len(records) < page_size or len(all_records) >= limit:
                 break
         
-        price_keys = ["価格", "金額", "売買価格", "賃料", "price", "希望価格"]
-        for key in price_keys:
-            if key in record and record[key]:
-                price = str(record[key])
-                break
-        
-        location_keys = ["所在地", "住所", "address", "location", "所在", "地番"]
-        for key in location_keys:
-            if key in record and record[key]:
-                location = str(record[key])
-                break
-        
-        if not title:
-            title = package.get("title", "Unknown")
-        
-        return {
-            "title": title,
-            "price": price,
-            "location": location,
-        }
+        return all_records
 
-    def _generate_id(self, source_portal: str, record: Dict) -> str:
-        """Generate a unique ID for a record."""
-        record_str = json.dumps(record, sort_keys=True, ensure_ascii=False)
-        hash_input = f"{source_portal}:{record_str}"
+    def download_and_parse_static_file(self, url: str, format_type: str, max_rows: int = 10) -> List[Dict]:
+        """Download and parse static CSV/XLSX/JSON files using pandas."""
+        if not PANDAS_AVAILABLE:
+            logger.debug("Pandas not available, skipping static file")
+            return []
+        
+        try:
+            response = self._safe_request(url, stream=True)
+            if not response:
+                return []
+            
+            content = response.content
+            
+            if format_type.upper() == "CSV":
+                for encoding in ["utf-8", "shift_jis", "cp932", "utf-8-sig"]:
+                    try:
+                        df = pd.read_csv(io.BytesIO(content), encoding=encoding, nrows=max_rows)
+                        return df.to_dict(orient="records")
+                    except (UnicodeDecodeError, pd.errors.ParserError):
+                        continue
+                logger.warning(f"Failed to parse CSV with any encoding: {url}")
+                return []
+            
+            elif format_type.upper() in ("XLSX", "XLS"):
+                try:
+                    df = pd.read_excel(io.BytesIO(content), nrows=max_rows)
+                    return df.to_dict(orient="records")
+                except Exception as e:
+                    logger.warning(f"Failed to parse Excel: {e}")
+                    return []
+            
+            elif format_type.upper() == "JSON":
+                try:
+                    data = json.loads(content.decode("utf-8"))
+                    if isinstance(data, list):
+                        return data[:max_rows]
+                    elif isinstance(data, dict):
+                        if "records" in data:
+                            return data["records"][:max_rows]
+                        elif "results" in data:
+                            return data["results"][:max_rows]
+                        return [data]
+                    return []
+                except Exception as e:
+                    logger.warning(f"Failed to parse JSON: {e}")
+                    return []
+            
+            return []
+            
+        except Exception as e:
+            logger.warning(f"Error downloading/parsing file {url}: {e}")
+            return []
+
+    def _extract_field(self, record: Dict, field_keys: List[str]) -> Optional[str]:
+        """Extract a field value trying multiple possible keys."""
+        for key in field_keys:
+            if key in record and record[key]:
+                value = record[key]
+                if PANDAS_AVAILABLE:
+                    try:
+                        if pd.isna(value):
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+                return str(value).strip()
+        return None
+
+    def _generate_id(self, resource_id: str, address: Optional[str], record: Dict) -> str:
+        """Generate unique ID using resource_id and address hash."""
+        if address:
+            hash_input = f"{resource_id}:{address}"
+        else:
+            record_str = json.dumps(record, sort_keys=True, ensure_ascii=False)
+            hash_input = f"{resource_id}:{record_str}"
         return hashlib.sha256(hash_input.encode()).hexdigest()[:32]
 
-    def save_listing(self, listing: Dict):
-        """Save a listing to the database with upsert."""
+    def save_listing(self, listing: Dict) -> bool:
+        """Save a listing to the database with deduplication."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        cursor.execute("""
-            INSERT INTO listings (id, source_portal, title, price, location, resource_url, raw_data, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(id) DO UPDATE SET
-                title = excluded.title,
-                price = excluded.price,
-                location = excluded.location,
-                resource_url = excluded.resource_url,
-                raw_data = excluded.raw_data,
-                updated_at = CURRENT_TIMESTAMP
-        """, (
-            listing["id"],
-            listing["source_portal"],
-            listing["title"],
-            listing["price"],
-            listing["location"],
-            listing["resource_url"],
-            listing["raw_data"],
-        ))
-        
-        conn.commit()
-        conn.close()
+        try:
+            cursor.execute("""
+                INSERT INTO listings (id, source_municipality, dataset_title, property_address, 
+                                      price, listing_url, resource_id, last_updated, raw_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    source_municipality = excluded.source_municipality,
+                    dataset_title = excluded.dataset_title,
+                    property_address = excluded.property_address,
+                    price = excluded.price,
+                    listing_url = excluded.listing_url,
+                    last_updated = excluded.last_updated,
+                    raw_data = excluded.raw_data
+            """, (
+                listing["id"],
+                listing["source_municipality"],
+                listing["dataset_title"],
+                listing["property_address"],
+                listing["price"],
+                listing["listing_url"],
+                listing["resource_id"],
+                listing["last_updated"],
+                listing["raw_data"],
+            ))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error saving listing: {e}")
+            conn.close()
+            return False
 
-    def process_package(self, package: Dict) -> int:
-        """Process a single package and its resources."""
-        package_id = package.get("id", "unknown")
-        package_title = package.get("title", "Unknown")
-        org_title = package.get("organization", {}).get("title", "BODIK")
+    def process_resource(self, resource: Dict, package: Dict) -> int:
+        """Process a single resource and extract listings."""
+        resource_id = resource.get("id", "")
+        resource_url = resource.get("url", "")
+        resource_format = resource.get("format", "").upper()
+        datastore_active = resource.get("datastore_active", False)
+        resource_name = resource.get("name", "")
         
-        logger.info(f"Processing package: {package_title}")
-        
-        resources = package.get("resources", [])
-        csv_resources = [r for r in resources if r.get("format", "").upper() == "CSV"]
-        
-        if not csv_resources:
-            logger.debug(f"No CSV resources in {package_title}")
+        if resource_format not in SUPPORTED_FORMATS:
             return 0
         
-        records_saved = 0
+        org = package.get("organization") or {}
+        source_municipality = org.get("title") or org.get("name") or "BODIK"
+        dataset_title = package.get("title", "Unknown Dataset")
+        last_updated = resource.get("last_modified") or package.get("metadata_modified")
         
-        for resource in csv_resources:
-            resource_id = resource.get("id")
-            resource_url = resource.get("url", "")
-            resource_name = resource.get("name", "")
-            
-            logger.info(f"  Fetching datastore for: {resource_name or resource_id}")
+        records = []
+        
+        if datastore_active:
+            logger.info(f"    [Datastore] {resource_name or resource_id}")
             records = self.get_datastore_records(resource_id)
-            
-            if not records:
-                logger.debug(f"  No records found in datastore for {resource_id}")
-                continue
-            
-            logger.info(f"  Found {len(records)} records")
-            
-            for record in records:
-                try:
-                    fields = self._extract_listing_fields(record, package, resource)
-                    listing_id = self._generate_id(org_title, record)
-                    
-                    listing = {
-                        "id": listing_id,
-                        "source_portal": org_title,
-                        "title": fields["title"],
-                        "price": fields["price"],
-                        "location": fields["location"],
-                        "resource_url": resource_url,
-                        "raw_data": json.dumps(record, ensure_ascii=False),
-                    }
-                    
-                    self.save_listing(listing)
-                    records_saved += 1
-                    
-                except Exception as e:
-                    logger.error(f"Error saving record: {e}")
-                    continue
+        else:
+            logger.info(f"    [Static {resource_format}] {resource_name or resource_id}")
+            records = self.download_and_parse_static_file(resource_url, resource_format, max_rows=100)
         
-        return records_saved
+        if not records:
+            return 0
+        
+        saved_count = 0
+        for record in records:
+            try:
+                address = self._extract_field(record, ADDRESS_FIELD_KEYS)
+                price = self._extract_field(record, PRICE_FIELD_KEYS)
+                title = self._extract_field(record, TITLE_FIELD_KEYS)
+                
+                listing_id = self._generate_id(resource_id, address, record)
+                
+                listing = {
+                    "id": listing_id,
+                    "source_municipality": source_municipality,
+                    "dataset_title": title or dataset_title,
+                    "property_address": address,
+                    "price": price,
+                    "listing_url": resource_url,
+                    "resource_id": resource_id,
+                    "last_updated": last_updated,
+                    "raw_data": json.dumps(record, ensure_ascii=False, default=str),
+                }
+                
+                if self.save_listing(listing):
+                    saved_count += 1
+                    
+            except Exception as e:
+                logger.debug(f"Error processing record: {e}")
+                continue
+        
+        return saved_count
+
+    def process_package(self, package: Dict) -> int:
+        """Process a single package and all its resources."""
+        package_title = package.get("title", "Unknown")
+        resources = package.get("resources", [])
+        
+        supported_resources = [
+            r for r in resources 
+            if r.get("format", "").upper() in SUPPORTED_FORMATS
+        ]
+        
+        if not supported_resources:
+            return 0
+        
+        logger.info(f"Processing: {package_title} ({len(supported_resources)} resources)")
+        
+        total_saved = 0
+        for resource in supported_resources:
+            try:
+                saved = self.process_resource(resource, package)
+                total_saved += saved
+            except Exception as e:
+                logger.warning(f"Error processing resource: {e}")
+                continue
+        
+        if total_saved > 0:
+            logger.info(f"  -> Saved {total_saved} listings")
+        
+        return total_saved
 
     def run(self) -> Dict[str, int]:
         """Run the full ingestion process."""
-        logger.info("=" * 60)
-        logger.info("BODIK CKAN Ingestion Starting")
-        logger.info("=" * 60)
+        logger.info("=" * 70)
+        logger.info("BODIK CKAN Wide-Search Ingestion Starting")
+        logger.info(f"Keywords: {', '.join(SEARCH_KEYWORDS)}")
+        logger.info("=" * 70)
         
         stats = {
             "packages_found": 0,
-            "packages_processed": 0,
-            "records_saved": 0,
+            "packages_with_data": 0,
+            "total_records": 0,
             "errors": 0,
         }
         
-        packages = self.search_packages()
+        packages = self.search_all_packages()
         stats["packages_found"] = len(packages)
         
         for package in packages:
             try:
-                records_saved = self.process_package(package)
-                stats["records_saved"] += records_saved
-                stats["packages_processed"] += 1
+                saved = self.process_package(package)
+                if saved > 0:
+                    stats["packages_with_data"] += 1
+                    stats["total_records"] += saved
             except Exception as e:
                 logger.error(f"Error processing package: {e}")
                 stats["errors"] += 1
                 continue
         
-        logger.info("=" * 60)
+        logger.info("=" * 70)
         logger.info("Ingestion Complete")
-        logger.info(f"  Packages found: {stats['packages_found']}")
-        logger.info(f"  Packages processed: {stats['packages_processed']}")
-        logger.info(f"  Records saved: {stats['records_saved']}")
+        logger.info(f"  Packages searched: {stats['packages_found']}")
+        logger.info(f"  Packages with data: {stats['packages_with_data']}")
+        logger.info(f"  Total records saved: {stats['total_records']}")
         logger.info(f"  Errors: {stats['errors']}")
-        logger.info("=" * 60)
+        logger.info("=" * 70)
         
         return stats
 
-    def get_listings(self, limit: int = 100) -> List[Dict]:
-        """Retrieve listings from the database."""
+    def get_summary(self) -> Dict[str, Any]:
+        """Get summary statistics from the database."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) FROM listings")
+        total = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT source_municipality, COUNT(*) as count 
+            FROM listings 
+            GROUP BY source_municipality 
+            ORDER BY count DESC
+        """)
+        by_municipality = cursor.fetchall()
+        
+        cursor.execute("SELECT COUNT(*) FROM listings WHERE property_address IS NOT NULL")
+        with_address = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM listings WHERE price IS NOT NULL")
+        with_price = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return {
+            "total_listings": total,
+            "with_address": with_address,
+            "with_price": with_price,
+            "by_municipality": by_municipality,
+        }
+
+    def get_sample_listings(self, limit: int = 10) -> List[Dict]:
+        """Get sample listings with addresses."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT source_portal, title, price, location, resource_url, created_at
+            SELECT source_municipality, dataset_title, property_address, price, listing_url
             FROM listings
+            WHERE property_address IS NOT NULL
             ORDER BY created_at DESC
             LIMIT ?
         """, (limit,))
@@ -359,11 +531,26 @@ def main():
     ingestion = BodikIngestion()
     stats = ingestion.run()
     
-    if stats["records_saved"] > 0:
-        logger.info("\nSample listings:")
-        listings = ingestion.get_listings(limit=5)
-        for listing in listings:
-            logger.info(f"  - {listing['title'][:50]}... | {listing['location'] or 'N/A'} | {listing['price'] or 'N/A'}")
+    summary = ingestion.get_summary()
+    
+    logger.info("\n" + "=" * 70)
+    logger.info("DATABASE SUMMARY")
+    logger.info("=" * 70)
+    logger.info(f"Total listings: {summary['total_listings']}")
+    logger.info(f"With address: {summary['with_address']}")
+    logger.info(f"With price: {summary['with_price']}")
+    
+    logger.info("\nListings by municipality:")
+    for municipality, count in summary["by_municipality"][:15]:
+        logger.info(f"  {municipality}: {count}")
+    
+    sample = ingestion.get_sample_listings(5)
+    if sample:
+        logger.info("\nSample listings with addresses:")
+        for listing in sample:
+            addr = listing["property_address"][:40] if listing["property_address"] else "N/A"
+            price = listing["price"][:20] if listing["price"] else "N/A"
+            logger.info(f"  [{listing['source_municipality']}] {addr}... | {price}")
     
     return stats
 
