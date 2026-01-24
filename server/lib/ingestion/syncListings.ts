@@ -13,6 +13,7 @@ import { eq, gt, or, and, ne, isNotNull, sql, desc } from "drizzle-orm";
 import { withJobLock } from "./jobLock";
 import { createIngestionLog, updateIngestionLog } from "./upsert";
 import type { JobResult } from "../connectors/types";
+import { getPrefectureCoords } from "../prefectureCoords";
 
 const JOB_NAME = "sync_listings";
 const CURSOR_NAME = "sync_listings";
@@ -267,9 +268,20 @@ export async function runSyncListingsJob(): Promise<JobResult> {
           .filter((p): p is number => p !== null && p > 0);
         const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
         
+        let lat = entity.canonicalLat;
+        let lon = entity.canonicalLon;
+        
+        if (!lat || !lon) {
+          const prefectureCoords = getPrefectureCoords(entity.prefecture);
+          if (prefectureCoords) {
+            lat = prefectureCoords.lat;
+            lon = prefectureCoords.lon;
+          }
+        }
+        
         let nearestAirport: { iata: string; name: string; distanceKm: number } | null = null;
-        if (entity.canonicalLat && entity.canonicalLon) {
-          nearestAirport = await findNearestAirport(entity.canonicalLat, entity.canonicalLon);
+        if (lat && lon) {
+          nearestAirport = await findNearestAirport(lat, lon);
         }
         
         const listingData = {
@@ -285,8 +297,8 @@ export async function runSyncListingsJob(): Promise<JobResult> {
           locality: entity.locality,
           addressOriginal: entity.canonicalAddressJp,
           addressEn: entity.canonicalAddressEn,
-          lat: entity.canonicalLat,
-          lon: entity.canonicalLon,
+          lat,
+          lon,
           nearestAirportIata: nearestAirport?.iata || null,
           nearestAirportName: nearestAirport?.name || null,
           nearestAirportKm: nearestAirport?.distanceKm || null,
