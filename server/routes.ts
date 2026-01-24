@@ -122,9 +122,7 @@ export async function registerRoutes(
         .where(
           and(
             eq(listings.status, "active"),
-            isNotNull(listings.lastSeenAt),
-            isNotNull(listings.photos),
-            isNotNull(listings.prefecture)
+            isNotNull(listings.lastSeenAt)
           )
         )
         .orderBy(
