@@ -22,6 +22,15 @@
 // ============================================================================
 
 /**
+ * Google Maps geocoder address component (local definition)
+ */
+interface GeocoderAddressComponent {
+  long_name: string;
+  short_name: string;
+  types: string[];
+}
+
+/**
  * Geocoding result with coordinates and address components
  */
 export interface GeocodingResult {
@@ -75,7 +84,7 @@ export interface AddressComponents {
   /** Country code */
   countryCode: string;
   /** Full component array for advanced use */
-  rawComponents: google.maps.GeocoderAddressComponent[];
+  rawComponents: GeocoderAddressComponent[];
 }
 
 /**
@@ -885,7 +894,7 @@ export class GoogleMapsGeocoder {
    * Parse address components for Japanese addresses
    */
   private parseAddressComponents(
-    components: google.maps.GeocoderAddressComponent[]
+    components: GeocoderAddressComponent[]
   ): AddressComponents {
     const getComponent = (type: string): string | undefined => {
       const component = components.find(c => c.types.includes(type));
@@ -938,19 +947,23 @@ export class GoogleMapsGeocoder {
     let normalized = address.trim();
 
     // Common replacements for Japanese address formats
-    const replacements: [RegExp, string][] = [
+    const replacements: [RegExp, string | ((substring: string, ...args: any[]) => string)][] = [
       [/〒\d{3}-?\d{4}\s*/, ''], // Remove postal code prefix
       [/^日本国?\s*/, ''], // Remove country prefix
       [/[-－﹣−‐⁃‑‒–—﹘―⎯⏤ーｰ─━]/g, '-'], // Normalize dashes
       [/\s+/g, ' '], // Normalize whitespace
-      [/([０-９])/g, (_, char) => String.fromCharCode(char.charCodeAt(0) - 0xFEE0)], // Full-width to half-width numbers
+      [/([０-９])/g, (_, char: string) => String.fromCharCode(char.charCodeAt(0) - 0xFEE0)], // Full-width to half-width numbers
       [/丁目/g, '-'], // Normalize chome
       [/番地?/g, '-'], // Normalize ban
       [/号/g, ''], // Remove "go" suffix
     ];
 
     for (const [pattern, replacement] of replacements) {
-      normalized = normalized.replace(pattern, replacement);
+      if (typeof replacement === 'function') {
+        normalized = normalized.replace(pattern, replacement as (substring: string, ...args: any[]) => string);
+      } else {
+        normalized = normalized.replace(pattern, replacement);
+      }
     }
 
     return normalized;
@@ -1012,7 +1025,7 @@ export class GoogleMapsGeocoder {
     let oldestTime = Infinity;
     let lowestAccess = Infinity;
 
-    for (const [key, entry] of this.cache.entries()) {
+    for (const [key, entry] of Array.from(this.cache.entries())) {
       // Prioritize by access count, then timestamp
       if (entry.accessCount < lowestAccess ||
           (entry.accessCount === lowestAccess && entry.timestamp < oldestTime)) {
