@@ -5,6 +5,49 @@
  * Japan Post Postal Code & Digital Address API.
  * 
  * For the Akiya Japan application
+ * 
+ * ============================================================================
+ * IMPLEMENTATION STATUS
+ * ============================================================================
+ * 
+ * ✅ COMPLETED:
+ * - OAuth 2.0 client credentials flow (refreshToken, ensureAuthenticated)
+ * - Address lookup by postal code (lookupPostalCode)
+ * - Address lookup by digital address (lookupDigitalAddress)
+ * - Address search by text query (searchPostalCodeByAddress)
+ * - Address normalization from raw strings (normalizeAddress)
+ * - Address formatting in kanji/kana/roman (formatAddress)
+ * - Response parsing for Japan Post API formats
+ * - In-memory caching with TTL
+ * - Comprehensive error handling (Auth, Rate Limit, Not Found)
+ * - TypeScript type definitions for all interfaces
+ * 
+ * ⏳ REQUIRES OAuth REGISTRATION:
+ * To use this connector, you MUST obtain OAuth credentials from Japan Post:
+ * 
+ * 1. Visit: https://www.post.japanpost.jp/digital_address_api/
+ * 2. Apply for API access (企業向け or 個人向け depending on use case)
+ * 3. Register your application to receive:
+ *    - clientId (Consumer Key)
+ *    - clientSecret (Consumer Secret)
+ * 4. Store credentials securely (use environment variables)
+ * 
+ * Required OAuth Scopes:
+ * - searchcode: Look up addresses by postal/digital code
+ * - addresszip: Search postal codes by address text
+ * 
+ * Environment Setup:
+ * ```
+ * JAPANPOST_CLIENT_ID=your-client-id
+ * JAPANPOST_CLIENT_SECRET=your-client-secret
+ * ```
+ * 
+ * API Endpoints Used:
+ * - POST /oauth2/token - OAuth token acquisition
+ * - GET /v1/searchcode - Code-based address lookup
+ * - GET /v1/addresszip - Address-based postal code search
+ * 
+ * ============================================================================
  */
 
 // ============================================================================
@@ -488,7 +531,7 @@ export class JapanPostAddressNormalizer {
     url.searchParams.set('format', params.format);
 
     const response = await this.fetchWithAuth(url.toString());
-    return this.parseSearchResponse(response);
+    return await this.parseSearchResponse(response);
   }
 
   /**
@@ -503,10 +546,41 @@ export class JapanPostAddressNormalizer {
     url.searchParams.set('format', params.format);
 
     const response = await this.fetchWithAuth(url.toString());
-    const results = await this.parseSearchResponse(response);
     
-    // The API might return multiple results
-    return results.data ? [results.data] : [];
+    if (!response.ok) {
+      if (response.status === 429) {
+        throw new RateLimitError();
+      }
+      if (response.status === 401) {
+        throw new AuthenticationError('Token expired or invalid');
+      }
+      const errorText = await response.text().catch(() => 'Unknown error');
+      throw new AddressNormalizationError(
+        `API request failed: ${response.status} - ${errorText}`,
+        'API_ERROR'
+      );
+    }
+
+    const json = await response.json();
+    
+    // Handle array of results
+    if (json.results && Array.isArray(json.results)) {
+      return json.results.map((result: Record<string, unknown>) => 
+        this.mapApiResponseToAddressData(result)
+      );
+    }
+    
+    // Handle single result wrapped in data
+    if (json.data) {
+      return [this.mapApiResponseToAddressData(json.data, json.addressCode)];
+    }
+    
+    // Handle direct result
+    if (json.prefecture || json.city || json.town) {
+      return [this.mapApiResponseToAddressData(json)];
+    }
+    
+    return [];
   }
 
   /**
@@ -533,24 +607,139 @@ export class JapanPostAddressNormalizer {
 
   /**
    * Parse API search response
+   * 
+   * Japan Post Digital Address API Response Format:
+   * {
+   *   "addressCode": "1000004",
+   *   "addressType": "postal",
+   *   "status": "success",
+   *   "data": {
+   *     "prefecture": "東京都",
+   *     "city": "千代田区",
+   *     "town": "大手町",
+   *     "prefectureKana": "トウキョウト",
+   *     "cityKana": "チヨダク",
+   *     "townKana": "オオテマチ",
+   *     "prefectureRoman": "Tokyo",
+   *     "cityRoman": "Chiyoda-ku",
+   *     "townRoman": "Otemachi",
+   *     "buildingInfo": "..." // Only for digital address
+   *   }
+   * }
+   * 
+   * For address-to-zip search, the response may include multiple addresses:
+   * {
+   *   "status": "success",
+   *   "count": 2,
+   *   "results": [
+   *     { ...address data... },
+   *     { ...address data... }
+   *   ]
+   * }
    */
-  private parseSearchResponse(response: Response): SearchResult {
-    // This is a placeholder implementation
-    // Actual implementation would depend on the exact API response format
-    
+  private async parseSearchResponse(response: Response): Promise<SearchResult> {
     if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error');
       return {
         success: false,
-        error: `API error: ${response.status}`,
+        error: `API error: ${response.status} - ${errorText}`,
         count: 0,
       };
     }
 
-    // Placeholder - actual parsing would happen here
+    try {
+      const json = await response.json();
+      
+      // Handle error responses from API
+      if (json.status === 'error' || json.error) {
+        return {
+          success: false,
+          error: json.message || json.error || 'Unknown API error',
+          count: 0,
+        };
+      }
+
+      // Handle single address response (searchcode endpoint)
+      if (json.data) {
+        const addressData = this.mapApiResponseToAddressData(json.data, json.addressCode);
+        return {
+          success: true,
+          data: addressData,
+          count: 1,
+        };
+      }
+
+      // Handle multiple results (addresszip endpoint)
+      if (json.results && Array.isArray(json.results)) {
+        if (json.results.length === 0) {
+          return {
+            success: false,
+            error: 'No addresses found',
+            count: 0,
+          };
+        }
+        // Return first result as primary data
+        const addressData = this.mapApiResponseToAddressData(json.results[0]);
+        return {
+          success: true,
+          data: addressData,
+          count: json.results.length,
+        };
+      }
+
+      // Handle direct address object (alternate API format)
+      if (json.prefecture || json.city || json.town) {
+        const addressData = this.mapApiResponseToAddressData(json);
+        return {
+          success: true,
+          data: addressData,
+          count: 1,
+        };
+      }
+
+      return {
+        success: false,
+        error: 'Unexpected API response format',
+        count: 0,
+      };
+    } catch (error) {
+      this.log('Failed to parse API response:', error);
+      return {
+        success: false,
+        error: `Parse error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        count: 0,
+      };
+    }
+  }
+
+  /**
+   * Map API response data to AddressData interface
+   */
+  private mapApiResponseToAddressData(
+    apiData: Record<string, unknown>,
+    postalCode?: string
+  ): AddressData {
+    const prefecture = String(apiData.prefecture || '');
+    const city = String(apiData.city || '');
+    const town = String(apiData.town || '');
+    
+    // Construct full address
+    const parts = [prefecture, city, town].filter(Boolean);
+    const fullAddress = parts.join('');
+
     return {
-      success: true,
-      data: undefined, // Would be parsed from response
-      count: 0,
+      postalCode: postalCode || String(apiData.postalCode || apiData.addressCode || ''),
+      prefecture,
+      city,
+      town,
+      fullAddress,
+      buildingInfo: apiData.buildingInfo ? String(apiData.buildingInfo) : undefined,
+      prefectureKana: apiData.prefectureKana ? String(apiData.prefectureKana) : undefined,
+      cityKana: apiData.cityKana ? String(apiData.cityKana) : undefined,
+      townKana: apiData.townKana ? String(apiData.townKana) : undefined,
+      prefectureRoman: apiData.prefectureRoman ? String(apiData.prefectureRoman) : undefined,
+      cityRoman: apiData.cityRoman ? String(apiData.cityRoman) : undefined,
+      townRoman: apiData.townRoman ? String(apiData.townRoman) : undefined,
     };
   }
 
