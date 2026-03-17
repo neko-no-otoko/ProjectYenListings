@@ -12,13 +12,13 @@ import { getEnvString } from "../connectors/index";
 const jobLastRun: Map<string, Date> = new Map();
 const jobNextRun: Map<string, Date> = new Map();
 
-function calculateNextRun(cronExpression: string): Date | null {
+function calculateNextRun(cronExpression: string): Date | undefined {
   try {
     const interval = cronParser.parse(cronExpression);
     return interval.next().toDate();
   } catch {
     console.error(`[Scheduler] Invalid cron expression: ${cronExpression}`);
-    return null;
+    return undefined;
   }
 }
 
