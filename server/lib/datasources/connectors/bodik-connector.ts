@@ -404,7 +404,7 @@ export class BODIKConnector {
     rows: number = 50
   ): Promise<AkiyaDataset[]> {
     // Wildcard search for organization IDs starting with prefecture code
-    const fq = `organization:${prefectureureCode}*`;
+    const fq = `organization:${prefectureCode}*`;
     
     const searchParams: PackageSearchParams = {
       query,

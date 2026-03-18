@@ -6,6 +6,7 @@ import { lifullConnector } from "../connectors/partners/lifull/jobs";
 import { atHomeConnector } from "../connectors/partners/athome/jobs";
 import { runTranslateJob } from "../translate/jobs";
 import { runSyncListingsJob } from "./syncListings";
+import { runBodikPipeline } from "./bodik-pipeline";
 import type { JobResult, ScheduledJob } from "../connectors/types";
 import { getEnvString } from "../connectors/index";
 
@@ -96,6 +97,21 @@ const scheduledJobs: ScheduledJob[] = [
     name: "sync-listings",
     cronExpression: getEnvString("INGESTION_CRON_SYNC_LISTINGS", "*/30 * * * *"),
     handler: runSyncListingsJob,
+    enabled: true,
+  },
+  {
+    name: "bodik-sync",
+    cronExpression: getEnvString("INGESTION_CRON_BODIK", "0 2 * * *"), // Daily at 2 AM
+    handler: async () => {
+      const result = await runBodikPipeline({ maxDatasets: 50, maxRecordsPerDataset: 1000 });
+      return {
+        success: result.success,
+        itemsFetched: result.recordsFetched,
+        itemsUpserted: result.recordsUpserted,
+        itemsSkipped: result.recordsSkipped,
+        error: result.errors.length > 0 ? result.errors.join("; ") : undefined,
+      };
+    },
     enabled: true,
   },
 ];
