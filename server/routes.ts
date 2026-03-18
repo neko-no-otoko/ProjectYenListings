@@ -5,6 +5,7 @@ import { searchFiltersSchema, listings } from "@shared/schema";
 import { db } from "./db";
 import { sql, eq, and, desc, isNotNull } from "drizzle-orm";
 import { translatePrefecture, translateIsland, getQuickTranslation } from "./lib/translate/translateService";
+import propertiesRouter from "./routes/properties";
 
 function applyTranslations<T extends { titleEn: string | null; prefecture: string | null; municipality: string | null; island: string | null }>(
   listing: T
@@ -23,6 +24,8 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Register new property API routes
+  app.use("/api/properties", propertiesRouter);
   app.get("/api/search", async (req, res) => {
     try {
       const rawFilters = {
