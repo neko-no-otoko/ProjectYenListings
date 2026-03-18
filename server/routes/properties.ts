@@ -289,7 +289,7 @@ router.get("/search", async (req: Request, res: Response) => {
 // GET /api/properties/by-prefecture/:code - Filter by prefecture
 router.get("/by-prefecture/:code", async (req: Request, res: Response) => {
   try {
-    const { code } = req.params;
+    const code = Array.isArray(req.params.code) ? req.params.code[0] : req.params.code;
     const validatedQuery = listPropertiesQuerySchema.omit({ prefecture: true }).parse(req.query);
     
     if (!code) {
@@ -352,7 +352,7 @@ router.get("/by-prefecture/:code", async (req: Request, res: Response) => {
 // GET /api/properties/:id - Get single property details
 router.get("/:id", async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     
     if (!id) {
       return res.status(400).json({
