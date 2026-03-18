@@ -134,7 +134,7 @@ export interface AtHomeScraperStats {
 // HTTP CLIENT WITH RATE LIMITING
 // ============================================================================
 
-class AtHomeHttpClient {
+export class AtHomeHttpClient {
   private rateLimiter = getRateLimiter(ATHOME_HOST, 60);
   private userAgent = "AkiyaResearchBot/1.0 (Research Project; Respectful Scraping; Contact: research@example.com)";
 
@@ -178,7 +178,7 @@ class AtHomeHttpClient {
 // HTML PARSERS
 // ============================================================================
 
-class AtHomeHtmlParser {
+export class AtHomeHtmlParser {
   /**
    * Parse property listings from prefecture listing page HTML
    */
