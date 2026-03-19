@@ -44,12 +44,12 @@ def run_shell(cmd, timeout=15):
         return f"Error: {e}"
 
 def get_weather():
-    """Get weather forecast for White Bear Lake, MN."""
-    # Current conditions
-    current = run_shell('curl -s --max-time 10 "wttr.in/White+Bear+Lake,+MN?format=%l:+%c+%t+(feels+like+%f),+%w+wind,+%h+humidity"')
+    """Get weather forecast for White Bear Lake, MN in imperial units."""
+    # Current conditions (imperial units)
+    current = run_shell('curl -s --max-time 10 "wttr.in/White+Bear+Lake,+MN?u&format=%l:+%c+%t+(feels+like+%f),+%w+wind,+%h+humidity"')
     
-    # 3-day forecast (condensed)
-    forecast = run_shell('curl -s --max-time 10 "wttr.in/White+Bear+Lake,+MN?format=4"')
+    # 3-day forecast (condensed, imperial units)
+    forecast = run_shell('curl -s --max-time 10 "wttr.in/White+Bear+Lake,+MN?u&format=4"')
     
     return {
         "current": current,
