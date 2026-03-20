@@ -16,11 +16,48 @@ import {
 import { formatPriceUsd, formatHouseSqft } from "@/lib/conversions";
 import type { Property } from "./types";
 
-// Google Maps types
+// Extend Window interface for Google Maps
 declare global {
   interface Window {
-    google?: typeof google;
+    google?: any;
   }
+}
+
+// Google Maps Script loading hook
+function useGoogleMaps(apiKey?: string) {
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!apiKey) return;
+    
+    // Check if already loaded
+    if (window.google?.maps) {
+      setIsLoaded(true);
+      return;
+    }
+
+    // Check if script is already being loaded
+    const existingScript = document.getElementById("google-maps-script");
+    if (existingScript) {
+      existingScript.addEventListener("load", () => setIsLoaded(true));
+      return;
+    }
+
+    // Load the script
+    const script = document.createElement("script");
+    script.id = "google-maps-script";
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => setIsLoaded(true);
+    document.head.appendChild(script);
+
+    return () => {
+      // Don't remove the script on unmount as it may be used by other components
+    };
+  }, [apiKey]);
+
+  return isLoaded;
 }
 
 interface PropertyMapProps {
@@ -57,37 +94,17 @@ export function PropertyMap({
   googleMapsApiKey,
 }: PropertyMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.Marker[]>([]);
-  const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]);
+  const isMapLoaded = useGoogleMaps(googleMapsApiKey);
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
-
-  // Load Google Maps script
-  useEffect(() => {
-    if (!googleMapsApiKey) return;
-    if (window.google?.maps) {
-      setIsMapLoaded(true);
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}&libraries=places`;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => setIsMapLoaded(true);
-    document.head.appendChild(script);
-
-    return () => {
-      document.head.removeChild(script);
-    };
-  }, [googleMapsApiKey]);
 
   // Initialize map
   useEffect(() => {
     if (!mapRef.current || !isMapLoaded || !window.google?.maps) return;
 
-    const map = new window.google.maps.Map(mapRef.current, {
+    const map = new (window.google as any).maps.Map(mapRef.current, {
       center,
       zoom,
       mapTypeControl: true,
@@ -119,6 +136,8 @@ export function PropertyMap({
   useEffect(() => {
     if (!mapInstanceRef.current || !window.google?.maps) return;
 
+    const googleMaps = (window.google as any).maps;
+
     // Clear existing markers
     markersRef.current.forEach((marker) => marker.setMap(null));
     markersRef.current = [];
@@ -128,18 +147,18 @@ export function PropertyMap({
       const coords = property.location?.coordinates;
       if (!coords) return;
 
-      const marker = new window.google.maps.Marker({
+      const marker = new googleMaps.Marker({
         position: { lat: coords.lat, lng: coords.lon },
         map: mapInstanceRef.current,
         title: property.title?.display || property.title?.en || "Property",
         animation: property.id === selectedPropertyId 
-          ? window.google.maps.Animation.BOUNCE 
+          ? googleMaps.Animation.BOUNCE 
           : undefined,
         icon: {
           url: property.id === selectedPropertyId
             ? "https://maps.google.com/mapfiles/ms/icons/red-dot.png"
             : "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
-          scaledSize: new window.google.maps.Size(40, 40),
+          scaledSize: new googleMaps.Size(40, 40),
         },
       });
 
@@ -151,7 +170,7 @@ export function PropertyMap({
         </div>
       `;
 
-      const infoWindow = new window.google.maps.InfoWindow({
+      const infoWindow = new googleMaps.InfoWindow({
         content: infoContent,
       });
 
@@ -167,7 +186,7 @@ export function PropertyMap({
     // Fit bounds if there are properties with coordinates
     const propertiesWithCoords = properties.filter((p) => p.location?.coordinates);
     if (propertiesWithCoords.length > 0 && propertiesWithCoords.length < 100) {
-      const bounds = new window.google.maps.LatLngBounds();
+      const bounds = new googleMaps.LatLngBounds();
       propertiesWithCoords.forEach((property) => {
         const coords = property.location!.coordinates!;
         bounds.extend({ lat: coords.lat, lng: coords.lon });
