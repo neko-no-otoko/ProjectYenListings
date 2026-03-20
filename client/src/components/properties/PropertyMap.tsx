@@ -63,7 +63,8 @@ function useGoogleMaps(apiKey?: string) {
 interface PropertyMapProps {
   properties: Property[];
   selectedPropertyId?: string;
-  onPropertySelect?: (property: Property) => void;
+  onPropertySelect?: (id: string) => void;
+  onPropertyClick?: (property: Property) => void;
   center?: { lat: number; lng: number };
   zoom?: number;
   height?: string;
@@ -83,6 +84,7 @@ export function PropertyMap({
   properties,
   selectedPropertyId,
   onPropertySelect,
+  onPropertyClick,
   center = DEFAULT_CENTER,
   zoom = DEFAULT_ZOOM,
   height = "500px",
@@ -177,7 +179,8 @@ export function PropertyMap({
       marker.addListener("click", () => {
         infoWindow.open(mapInstanceRef.current, marker);
         setSelectedProperty(property);
-        onPropertySelect?.(property);
+        onPropertyClick?.(property);
+        onPropertySelect?.(property.id);
       });
 
       markersRef.current.push(marker);
@@ -281,7 +284,7 @@ export function PropertyMap({
                     <div 
                       key={property.id}
                       className="flex items-center justify-between p-2 bg-muted rounded cursor-pointer hover:bg-muted/80"
-                      onClick={() => onPropertySelect?.(property)}
+                      onClick={() => onPropertySelect?.(property.id)}
                     >
                       <div className="flex items-center gap-2">
                         <MapPin className="h-4 w-4 text-primary" />
@@ -411,7 +414,7 @@ export function PropertyMap({
                 <Button 
                   className="w-full mt-2" 
                   size="sm"
-                  onClick={() => onPropertySelect?.(selectedProperty)}
+                  onClick={() => onPropertySelect?.(selectedProperty.id)}
                 >
                   View Details
                 </Button>

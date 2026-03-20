@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,7 +30,10 @@ import {
   RotateCcw,
   SlidersHorizontal,
   X,
-  Check
+  Check,
+  Building,
+  Trees,
+  Warehouse
 } from "lucide-react";
 import { PRICE_STEPS, getPriceLabel, sliderValueToJpy } from "@/lib/conversions";
 import type { PropertyFilters } from "./types";
@@ -47,6 +50,10 @@ interface PropertyFiltersProps {
   isOpen?: boolean;
   onClose?: () => void;
   showMobileToggle?: boolean;
+  /** When true, filters are applied immediately on change (debounced) */
+  autoApply?: boolean;
+  /** Show loading state */
+  isLoading?: boolean;
 }
 
 const PREFECTURES = [
@@ -107,6 +114,20 @@ const ISLANDS = [
   "Okinawa",
 ];
 
+const PROPERTY_TYPES = [
+  { id: "house", label: "House", icon: Home },
+  { id: "apartment", label: "Apartment", icon: Building },
+  { id: "land", label: "Land Only", icon: Trees },
+  { id: "kominka", label: "Kominka", icon: Warehouse },
+];
+
+const SORT_OPTIONS = [
+  { value: "newest", label: "Newest First" },
+  { value: "price_asc", label: "Price: Low to High" },
+  { value: "price_desc", label: "Price: High to Low" },
+  { value: "oldest", label: "Oldest First" },
+];
+
 export function PropertyFiltersComponent({
   filters,
   onFiltersChange,
@@ -119,14 +140,26 @@ export function PropertyFiltersComponent({
   isOpen = true,
   onClose,
   showMobileToggle = false,
+  autoApply = false,
+  isLoading = false,
 }: PropertyFiltersProps) {
   const [localFilters, setLocalFilters] = useState<PropertyFilters>(filters);
   const [isExpanded, setIsExpanded] = useState(isOpen);
+  const [selectedPropertyTypes, setSelectedPropertyTypes] = useState<string[]>([]);
 
-  const handleFilterChange = useCallback((key: keyof PropertyFilters, value: any) => {
+  // Sync local filters with props
+  useEffect(() => {
+    setLocalFilters(filters);
+  }, [filters]);
+
+  const handleFilterChange = useCallback(<K extends keyof PropertyFilters>(key: K, value: PropertyFilters[K]) => {
     const newFilters = { ...localFilters, [key]: value };
     setLocalFilters(newFilters);
-  }, [localFilters]);
+    
+    if (autoApply) {
+      onFiltersChange(newFilters);
+    }
+  }, [localFilters, onFiltersChange, autoApply]);
 
   const handleApply = useCallback(() => {
     onFiltersChange(localFilters);
@@ -140,14 +173,33 @@ export function PropertyFiltersComponent({
       sortBy: "newest",
     };
     setLocalFilters(resetFilters);
+    setSelectedPropertyTypes([]);
     onFiltersChange(resetFilters);
     onReset?.();
   }, [onFiltersChange, onReset]);
 
   const handlePriceChange = useCallback((values: number[]) => {
     const maxPrice = sliderValueToJpy(values[0]);
-    handleFilterChange("maxPrice", maxPrice);
-  }, [handleFilterChange]);
+    const newFilters = { ...localFilters, maxPrice };
+    setLocalFilters(newFilters);
+    
+    if (autoApply) {
+      onFiltersChange(newFilters);
+    }
+  }, [localFilters, onFiltersChange, autoApply]);
+
+  const handlePropertyTypeToggle = useCallback((typeId: string, checked: boolean) => {
+    const newTypes = checked
+      ? [...selectedPropertyTypes, typeId]
+      : selectedPropertyTypes.filter((t) => t !== typeId);
+    
+    setSelectedPropertyTypes(newTypes);
+    
+    // Map property types to the propertyType filter
+    // For now, we'll just use the first selected or combine them
+    const propertyTypeValue = newTypes.length > 0 ? newTypes.join(",") : undefined;
+    handleFilterChange("propertyType", propertyTypeValue);
+  }, [selectedPropertyTypes, handleFilterChange]);
 
   const activeFiltersCount = Object.entries(localFilters).filter(([key, value]) => {
     if (["page", "limit", "sortBy"].includes(key)) return false;
@@ -172,14 +224,41 @@ export function PropertyFiltersComponent({
           id="search-query"
           placeholder="Search properties..."
           value={localFilters.query || ""}
-          onChange={(e) => handleFilterChange("query", e.target.value)}
+          onChange={(e) => handleFilterChange("query", e.target.value || undefined)}
+          disabled={isLoading}
         />
       </div>
 
       <Separator />
 
-      {/* Location Filters */}
-      <Accordion type="multiple" defaultValue={["location"]} className="w-full">
+      {/* Sort Dropdown */}
+      <div className="space-y-2">
+        <Label className="flex items-center gap-2">
+          <Calendar className="h-4 w-4" />
+          Sort By
+        </Label>
+        <Select
+          value={localFilters.sortBy || "newest"}
+          onValueChange={(value) => handleFilterChange("sortBy", value as PropertyFilters["sortBy"])}
+          disabled={isLoading}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Sort by..." />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <Separator />
+
+      <Accordion type="multiple" defaultValue={["location", "price", "type"]} className="w-full">
+        {/* Location Filters */}
         <AccordionItem value="location" className="border-none">
           <AccordionTrigger className="py-2 hover:no-underline">
             <span className="flex items-center gap-2 text-sm font-medium">
@@ -193,6 +272,7 @@ export function PropertyFiltersComponent({
               <Select 
                 value={localFilters.prefecture || ""} 
                 onValueChange={(value) => handleFilterChange("prefecture", value || undefined)}
+                disabled={isLoading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="All Prefectures" />
@@ -211,6 +291,7 @@ export function PropertyFiltersComponent({
               <Select 
                 value={localFilters.island || ""} 
                 onValueChange={(value) => handleFilterChange("island", value || undefined)}
+                disabled={isLoading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="All Islands" />
@@ -231,11 +312,13 @@ export function PropertyFiltersComponent({
                 placeholder="Enter city name..."
                 value={localFilters.municipality || ""}
                 onChange={(e) => handleFilterChange("municipality", e.target.value || undefined)}
+                disabled={isLoading}
               />
             </div>
           </AccordionContent>
         </AccordionItem>
 
+        {/* Price Range */}
         <AccordionItem value="price" className="border-none">
           <AccordionTrigger className="py-2 hover:no-underline">
             <span className="flex items-center gap-2 text-sm font-medium">
@@ -250,10 +333,11 @@ export function PropertyFiltersComponent({
                 <span className="font-medium">{getPriceLabel(currentMaxPriceIndex)}</span>
               </div>
               <Slider
-                value={[currentMaxPriceIndex]}
+                value={[Math.max(0, Math.min(currentMaxPriceIndex, PRICE_STEPS.length - 1))]}
                 onValueChange={handlePriceChange}
                 max={PRICE_STEPS.length - 1}
                 step={1}
+                disabled={isLoading}
               />
               <p className="text-xs text-muted-foreground">
                 Drag to set maximum price
@@ -267,6 +351,7 @@ export function PropertyFiltersComponent({
                 onCheckedChange={(checked) => {
                   handleFilterChange("maxPrice", checked ? 0 : undefined);
                 }}
+                disabled={isLoading}
               />
               <Label htmlFor="free-transfer" className="text-sm cursor-pointer">
                 Free Transfer Only
@@ -275,10 +360,47 @@ export function PropertyFiltersComponent({
           </AccordionContent>
         </AccordionItem>
 
-        <AccordionItem value="features" className="border-none">
+        {/* Property Type Checkboxes */}
+        <AccordionItem value="type" className="border-none">
           <AccordionTrigger className="py-2 hover:no-underline">
             <span className="flex items-center gap-2 text-sm font-medium">
               <Home className="h-4 w-4" />
+              Property Type
+            </span>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              {PROPERTY_TYPES.map((type) => {
+                const Icon = type.icon;
+                return (
+                  <div key={type.id} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`type-${type.id}`}
+                      checked={selectedPropertyTypes.includes(type.id)}
+                      onCheckedChange={(checked) => 
+                        handlePropertyTypeToggle(type.id, checked as boolean)
+                      }
+                      disabled={isLoading}
+                    />
+                    <Label 
+                      htmlFor={`type-${type.id}`} 
+                      className="text-sm cursor-pointer flex items-center gap-1"
+                    >
+                      <Icon className="h-3 w-3" />
+                      {type.label}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Property Features */}
+        <AccordionItem value="features" className="border-none">
+          <AccordionTrigger className="py-2 hover:no-underline">
+            <span className="flex items-center gap-2 text-sm font-medium">
+              <Building className="h-4 w-4" />
               Property Features
             </span>
           </AccordionTrigger>
@@ -288,6 +410,7 @@ export function PropertyFiltersComponent({
               <Select 
                 value={localFilters.minLdk?.toString() || ""} 
                 onValueChange={(value) => handleFilterChange("minLdk", value ? parseInt(value) : undefined)}
+                disabled={isLoading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Any Layout" />
@@ -307,8 +430,10 @@ export function PropertyFiltersComponent({
                 id="has-land"
                 checked={localFilters.mustHaveLand || false}
                 onCheckedChange={(checked) => {
-                  handleFilterChange("mustHaveLand", checked);
+                  handleFilterChange("mustHaveLand", checked as boolean);
+                  handleFilterChange("hasLand", checked as boolean);
                 }}
+                disabled={isLoading}
               />
               <Label htmlFor="has-land" className="text-sm cursor-pointer">
                 Must Have Land
@@ -320,6 +445,7 @@ export function PropertyFiltersComponent({
               <Select 
                 value={localFilters.minConditionScore?.toString() || ""} 
                 onValueChange={(value) => handleFilterChange("minConditionScore", value ? parseInt(value) : undefined)}
+                disabled={isLoading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Any Condition" />
@@ -335,6 +461,7 @@ export function PropertyFiltersComponent({
           </AccordionContent>
         </AccordionItem>
 
+        {/* Size & Year */}
         <AccordionItem value="size" className="border-none">
           <AccordionTrigger className="py-2 hover:no-underline">
             <span className="flex items-center gap-2 text-sm font-medium">
@@ -348,6 +475,7 @@ export function PropertyFiltersComponent({
               <Select 
                 value={localFilters.minHouseSqm?.toString() || ""} 
                 onValueChange={(value) => handleFilterChange("minHouseSqm", value ? parseInt(value) : undefined)}
+                disabled={isLoading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Any Size" />
@@ -367,6 +495,7 @@ export function PropertyFiltersComponent({
               <Select 
                 value={localFilters.minLandSqm?.toString() || ""} 
                 onValueChange={(value) => handleFilterChange("minLandSqm", value ? parseInt(value) : undefined)}
+                disabled={isLoading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Any Size" />
@@ -386,6 +515,7 @@ export function PropertyFiltersComponent({
               <Select 
                 value={localFilters.minYearBuilt?.toString() || ""} 
                 onValueChange={(value) => handleFilterChange("minYearBuilt", value ? parseInt(value) : undefined)}
+                disabled={isLoading}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Any Year" />
@@ -407,15 +537,17 @@ export function PropertyFiltersComponent({
 
       {/* Action Buttons */}
       <div className="space-y-2">
-        <Button onClick={handleApply} className="w-full">
-          <Check className="h-4 w-4 mr-1" />
-          Apply Filters
-          {totalResults !== undefined && (
-            <span className="ml-1">({totalResults.toLocaleString()})</span>
-          )}
-        </Button>
+        {!autoApply && (
+          <Button onClick={handleApply} className="w-full" disabled={isLoading}>
+            <Check className="h-4 w-4 mr-1" />
+            Apply Filters
+            {totalResults !== undefined && (
+              <span className="ml-1">({totalResults.toLocaleString()})</span>
+            )}
+          </Button>
+        )}
         
-        <Button variant="outline" onClick={handleReset} className="w-full">
+        <Button variant="outline" onClick={handleReset} className="w-full" disabled={isLoading}>
           <RotateCcw className="h-4 w-4 mr-1" />
           Reset Filters
         </Button>
@@ -441,9 +573,17 @@ export function PropertyFiltersComponent({
                 {localFilters.island}
               </Badge>
             )}
-            {localFilters.maxPrice !== undefined && (
+            {localFilters.maxPrice !== undefined && localFilters.maxPrice > 0 && (
               <Badge variant="secondary" className="text-xs">
                 Max: {getPriceLabel(currentMaxPriceIndex)}
+              </Badge>
+            )}
+            {localFilters.maxPrice === 0 && (
+              <Badge variant="secondary" className="text-xs">Free Transfer</Badge>
+            )}
+            {selectedPropertyTypes.length > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {selectedPropertyTypes.length} type{selectedPropertyTypes.length > 1 ? 's' : ''}
               </Badge>
             )}
             {localFilters.mustHaveLand && (
@@ -468,6 +608,7 @@ export function PropertyFiltersComponent({
           variant="outline"
           className="lg:hidden w-full mb-4"
           onClick={() => setIsExpanded(!isExpanded)}
+          disabled={isLoading}
         >
           <SlidersHorizontal className="h-4 w-4 mr-2" />
           Filters
