@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import HomePage from "@/pages/home";
 import SearchPage from "@/pages/search";
 import ListingDetailPage from "@/pages/listing-detail";
+import AdminPage from "@/pages/admin";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -15,6 +16,7 @@ function Router() {
       <Route path="/" component={HomePage} />
       <Route path="/search" component={SearchPage} />
       <Route path="/listing/:id" component={ListingDetailPage} />
+      <Route path="/admin" component={AdminPage} />
       <Route component={NotFound} />
     </Switch>
   );

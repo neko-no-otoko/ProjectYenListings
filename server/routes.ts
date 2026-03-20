@@ -6,6 +6,7 @@ import { db } from "./db";
 import { sql, eq, and, desc, isNotNull } from "drizzle-orm";
 import { translatePrefecture, translateIsland, getQuickTranslation } from "./lib/translate/translateService";
 import propertiesRouter from "./routes/properties";
+import bodikAdminRouter from "./routes/admin";
 
 function applyTranslations<T extends { titleEn: string | null; prefecture: string | null; municipality: string | null; island: string | null }>(
   listing: T
@@ -26,6 +27,9 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Register new property API routes
   app.use("/api/properties", propertiesRouter);
+  
+  // Register BODIK admin routes
+  app.use("/api/admin/bodik", bodikAdminRouter);
   app.get("/api/search", async (req, res) => {
     try {
       const rawFilters = {
