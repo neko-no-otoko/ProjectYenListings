@@ -1,6 +1,6 @@
 import type { InsertListingVariant, InsertPropertyEntity, InsertRawCapture, InsertReinfolibTransaction, InsertCkanDataset, InsertCkanResource } from "@shared/schema";
 
-export type SourceType = "reinfolib_txn" | "ckan_akiya" | "lifull" | "athome" | "manual";
+export type SourceType = "reinfolib_txn" | "ckan_akiya" | "lifull" | "athome" | "manual" | "suumo" | "yahoo_realestate" | "homes";
 
 export interface ConnectorConfig {
   name: string;

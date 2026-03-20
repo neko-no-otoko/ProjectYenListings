@@ -5,7 +5,7 @@ import { z } from "zod";
 
 export const priceTypeEnum = pgEnum("price_type", ["transfer_fee", "purchase_price", "unknown"]);
 export const listingStatusEnum = pgEnum("listing_status", ["active", "inactive", "delisted", "unknown"]);
-export const sourceTypeEnum = pgEnum("source_type", ["reinfolib_txn", "ckan_akiya", "lifull", "athome", "manual", "arcgis_akiya", "socrata_akiya", "feed_import", "bodik"]);
+export const sourceTypeEnum = pgEnum("source_type", ["reinfolib_txn", "ckan_akiya", "lifull", "athome", "manual", "arcgis_akiya", "socrata_akiya", "feed_import", "bodik", "suumo", "yahoo_realestate", "homes"]);
 export const translateStatusEnum = pgEnum("translate_status", ["pending", "completed", "failed", "skipped"]);
 export const contentTypeEnum = pgEnum("content_type", ["json", "csv", "xlsx", "xml", "unknown"]);
 export const datasetStatusEnum = pgEnum("dataset_status", ["active", "review_required", "denied", "inactive"]);
