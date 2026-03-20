@@ -384,13 +384,20 @@ export class AtHomeHtmlParser {
 
   /**
    * Extract total count from listing page
+   * Pattern: "241件中1～20件を表示" or "全241件"
    */
   extractTotalCount(html: string): number {
-    // Pattern: "241件中1～20件を表示" or "全241件"
+    // Look for specific pattern: "X件中Y～Z件を表示" - X is the total
+    // This must be checked first before simpler patterns
+    const specificMatch = html.match(/(\d+)件中\d+～\d+件/);
+    if (specificMatch) {
+      return parseInt(specificMatch[1], 10);
+    }
+
+    // Fallback patterns
     const patterns = [
-      /(\d+)件中/,
       /全(\d+)件/,
-      /(\d+)件/,
+      /(\d+)件中/,
     ];
 
     for (const pattern of patterns) {
@@ -421,40 +428,79 @@ export class AtHomeScraper {
 
   /**
    * Scrape listings for a single prefecture
+   * Fetches ALL pages of results (not just the first page)
    */
   async scrapePrefecture(prefectureCode: string): Promise<ScrapeResult> {
-    const url = `${ATHOME_BASE_URL}/buy/${prefectureCode}/`;
-    
+    const allProperties: ScrapedProperty[] = [];
+    let totalCount = 0;
+    let page = 1;
+    let rawCaptureId: string | null = null;
+
     console.log(`[AtHome] Scraping prefecture ${prefectureCode}...`);
-    
-    const result = await this.httpClient.fetch(url);
-    
-    if (!result.success || !result.html) {
-      const error = result.error || "Unknown error";
-      this.stats.errors.push(`Prefecture ${prefectureCode}: ${error}`);
-      return { success: false, properties: [], totalCount: 0, error };
+
+    while (true) {
+      const url = page === 1 
+        ? `${ATHOME_BASE_URL}/buy/${prefectureCode}/`
+        : `${ATHOME_BASE_URL}/buy/${prefectureCode}/?page=${page}`;
+
+      console.log(`[AtHome] Fetching page ${page}: ${url}`);
+
+      const result = await this.httpClient.fetch(url);
+
+      if (!result.success || !result.html) {
+        const error = result.error || "Unknown error";
+        this.stats.errors.push(`Prefecture ${prefectureCode} page ${page}: ${error}`);
+        break;
+      }
+
+      // Capture raw HTML from first page for debugging/auditing
+      if (page === 1) {
+        rawCaptureId = await this.captureRawData(result.html, prefectureCode);
+        totalCount = this.parser.extractTotalCount(result.html);
+        console.log(`[AtHome] Total properties expected: ${totalCount}`);
+      }
+
+      const pageProperties = this.parser.parseListings(result.html, prefectureCode);
+      console.log(`[AtHome] Page ${page}: Found ${pageProperties.length} properties`);
+
+      // Stop if no properties found on this page
+      if (pageProperties.length === 0) {
+        console.log(`[AtHome] No more properties on page ${page}, stopping.`);
+        break;
+      }
+
+      allProperties.push(...pageProperties);
+
+      // Calculate if we need to fetch more pages (20 items per page)
+      const expectedPages = Math.ceil(totalCount / 20);
+      if (page >= expectedPages && totalCount > 0) {
+        console.log(`[AtHome] Reached expected last page (${expectedPages}), stopping.`);
+        break;
+      }
+
+      // Safety limit: max 100 pages per prefecture
+      if (page >= 100) {
+        console.log(`[AtHome] Safety limit reached (100 pages), stopping.`);
+        break;
+      }
+
+      page++;
     }
 
-    // Capture raw HTML for debugging/auditing
-    const rawCaptureId = await this.captureRawData(result.html, prefectureCode);
-
-    const properties = this.parser.parseListings(result.html, prefectureCode);
-    const totalCount = this.parser.extractTotalCount(result.html);
-
-    console.log(`[AtHome] Found ${properties.length} properties (total: ${totalCount})`);
+    console.log(`[AtHome] Total found for ${prefectureCode}: ${allProperties.length} properties`);
 
     this.stats.prefecturesScanned++;
-    this.stats.propertiesFound += properties.length;
+    this.stats.propertiesFound += allProperties.length;
 
-    // Store properties in database
-    for (const property of properties) {
-      await this.storeProperty(property, rawCaptureId);
+    // Store all properties in database
+    for (const property of allProperties) {
+      await this.storeProperty(property, rawCaptureId || "");
     }
 
     return {
-      success: true,
-      properties,
-      totalCount,
+      success: allProperties.length > 0,
+      properties: allProperties,
+      totalCount: totalCount || allProperties.length,
     };
   }
 
