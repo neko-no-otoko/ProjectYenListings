@@ -4,3 +4,16 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Backups directory
+backups/
+*.sql
+*.dump
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Railway
+.railway/

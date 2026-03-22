@@ -1,0 +1,96 @@
+# Railway Configuration for Akiya Japan
+# https://docs.railway.app/reference/config-as-code
+
+# Build configuration
+build:
+  # Use Nixpacks for Node.js builds
+  builder: nixpacks
+  config:
+    # Node.js version matching current Replit setup
+    nodeVersion: "20"
+    # Install Python for any Python scripts
+    nixPkgs:
+      - python311
+      - python311Packages.pip
+      - postgresql_16
+
+# Deploy configuration  
+deploy:
+  # Start command (matches Replit deployment)
+  startCommand: "npm run start"
+  
+  # Health check endpoint
+  healthcheckPath: "/api/health"
+  healthcheckTimeout: 300
+  
+  # Restart policy
+  restartPolicy:
+    maxRetries: 3
+    cooldown: 60
+  
+  # Resource limits (adjust based on usage)
+  # numReplicas: 1  # Scale manually or use auto-scaling
+  
+  # Region preference (optional)
+  # regions:
+  #   - us-west1
+  #   - us-east1
+
+# Service configuration
+services:
+  akiya-app:
+    # Main application service
+    build:
+      watchPatterns:
+        - "client/**"
+        - "server/**"
+        - "shared/**"
+        - "package.json"
+        - "tsconfig.json"
+        - "vite.config.ts"
+        - "tailwind.config.ts"
+        - "drizzle.config.ts"
+    
+    # Volume for persistent data (if needed)
+    # volumes:
+    #   - name: uploads
+    #     mountPath: /app/uploads
+    
+    # Environment variables (reference to avoid duplication)
+    # These will be set via Railway dashboard or CLI
+    # variables:
+    #   DATABASE_URL: ${{ postgres.DATABASE_URL }}
+    #   PORT: "5000"
+    #   NODE_ENV: "production"
+
+  postgres:
+    # PostgreSQL service configuration
+    # Railway manages this automatically when you add the database
+    type: database
+    databaseType: postgres
+    
+# Cron jobs (optional - for data ingestion)
+cronJobs:
+  # Example: Daily data sync job
+  # daily-sync:
+  #   schedule: "0 2 * * *"  # 2 AM daily
+  #   command: "npm run sync"
+  
+  # Example: Weekly cleanup
+  # weekly-cleanup:
+  #   schedule: "0 3 * * 0"  # 3 AM Sundays
+  #   command: "npm run cleanup"
+
+# Preview environments (for PRs)
+previewEnvironments:
+  # Create preview environments for pull requests
+  enabled: true
+  
+  # Copy variables from production
+  copyVariables:
+    - NODE_ENV
+    - LOG_LEVEL
+  
+  # Exclude sensitive/production-only variables
+  # excludeVariables:
+  #   - PRODUCTION_API_KEY

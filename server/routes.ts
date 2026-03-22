@@ -30,6 +30,29 @@ export async function registerRoutes(
   
   // Register BODIK admin routes
   app.use("/api/admin/bodik", bodikAdminRouter);
+
+  // Health check endpoint for Railway deployment
+  app.get("/api/health", async (_req, res) => {
+    try {
+      // Check database connectivity
+      const dbCheck = await db.execute(sql`SELECT 1 as check`);
+      
+      res.status(200).json({
+        status: "healthy",
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || "development",
+        database: dbCheck ? "connected" : "error",
+        version: process.env.npm_package_version || "1.0.0",
+      });
+    } catch (error) {
+      res.status(503).json({
+        status: "unhealthy",
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
   app.get("/api/search", async (req, res) => {
     try {
       const rawFilters = {
