@@ -5,6 +5,9 @@
  * 
  * - **BODIK**: Government Open Data (CKAN) - Municipal akiya datasets from Kyushu region
  * - **REINFOLIB (MLIT)**: Government API - FREE, official transaction data
+ * - **MLIT e-Stat**: Statistical data - Vacant house surveys, housing statistics
+ * - **National Land**: GIS data - Land prices, urban planning, disaster risk
+ * - **Japan Post**: Address API - Postal code lookup, address normalization
  * - **LIFULL HOMES**: Commercial portal - Most scraper-friendly
  * - **Yahoo!不動産**: Commercial portal - Good balance of data/access
  * - **SUUMO**: Commercial portal - Largest database but restrictive
@@ -72,6 +75,35 @@ export {
 // Re-export existing connectors for convenience
 export { AtHomeScraper } from './athome-scraper';
 
+// Japan Post Address API - Address normalization and postal code lookup
+export {
+  JapanPostConnector,
+  type JapanPostConfig,
+  createJapanPostConnectorFromEnv,
+} from './japanpost-connector';
+
+// MLIT e-Stat - Statistical data on vacant houses and housing
+export {
+  MlitEstatConnector,
+  type MlitEstatConfig,
+  type VacantHouseSurveyData,
+  type HousingLandSurveyData,
+  type BuildingStartsData,
+  createMlitEstatConnectorFromEnv,
+} from './mlit-estat-connector';
+
+// MLIT National Land Numerical Information - GIS data
+export {
+  NationalLandConnector,
+  type NationalLandConfig,
+  type LandPriceData,
+  type UrbanPlanningZone,
+  type DisasterRiskZone,
+  type NationalLandDataset,
+  RELEVANT_DATASETS,
+  createNationalLandConnectorFromEnv,
+} from './national-land-connector';
+
 /**
  * Connector usage priority for production:
  *
@@ -85,16 +117,32 @@ export { AtHomeScraper } from './athome-scraper';
  *    - Free with registration
  *    - No scraping needed
  *
- * 3. LIFULL HOMES (Scraping) - Secondary source
+ * 3. MLIT e-Stat (API) - Statistical insights
+ *    - Vacant house owner survey data
+ *    - Housing and land statistics
+ *    - No API key required for bulk download
+ *
+ * 4. National Land (GIS) - Geographic data
+ *    - Land price surveys
+ *    - Urban planning zones
+ *    - Disaster risk areas
+ *    - No API key required
+ *
+ * 5. Japan Post (API) - Address enrichment
+ *    - Address normalization
+ *    - Postal code validation
+ *    - Requires OAuth registration
+ *
+ * 6. LIFULL HOMES (Scraping) - Secondary source
  *    - Most scraper-friendly
  *    - Good rural coverage
  *    - Conservative rate limits recommended
  *
- * 4. Yahoo! Real Estate (Scraping) - Tertiary source
+ * 7. Yahoo! Real Estate (Scraping) - Tertiary source
  *    - Moderate anti-bot measures
  *    - Good data quality
  *
- * 5. SUUMO (Scraping) - Last resort
+ * 8. SUUMO (Scraping) - Last resort
  *    - Aggressive anti-bot
  *    - Largest database
  *    - Consider partnership instead
