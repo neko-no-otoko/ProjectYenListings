@@ -3,6 +3,7 @@
  * 
  * This module provides connectors for major Japanese property data sources:
  * 
+ * - **BODIK**: Government Open Data (CKAN) - Municipal akiya datasets from Kyushu region
  * - **REINFOLIB (MLIT)**: Government API - FREE, official transaction data
  * - **LIFULL HOMES**: Commercial portal - Most scraper-friendly
  * - **Yahoo!不動産**: Commercial portal - Good balance of data/access
@@ -10,6 +11,21 @@
  * 
  * @module connectors
  */
+
+// BODIK CKAN - Government Open Data Portal (Kyushu region)
+export {
+  BODIKConnector,
+  type BODIKConfig,
+  type Dataset,
+  type Resource,
+  type Organization,
+  type DatastoreSearchResult,
+  type AkiyaDataset,
+  AKIYA_SEARCH_TERMS,
+  KYUSHU_PREFECTURES,
+  OTHER_PREFECTURES,
+  AkiyaHelpers,
+} from './bodik-connector';
 
 // REINFOLIB - Government API (Recommended primary source)
 export { 
@@ -58,22 +74,27 @@ export { AtHomeScraper } from './athome-scraper';
 
 /**
  * Connector usage priority for production:
- * 
- * 1. REINFOLIB (API) - Always use first
+ *
+ * 1. BODIK (CKAN API) - Municipal open data
+ *    - Government open data portal
+ *    - No API key required
+ *    - Kyushu region focus with nationwide expansion
+ *
+ * 2. REINFOLIB (API) - Official transaction data
  *    - Official government data
  *    - Free with registration
  *    - No scraping needed
- * 
- * 2. LIFULL HOMES (Scraping) - Secondary source
+ *
+ * 3. LIFULL HOMES (Scraping) - Secondary source
  *    - Most scraper-friendly
  *    - Good rural coverage
  *    - Conservative rate limits recommended
- * 
- * 3. Yahoo! Real Estate (Scraping) - Tertiary source
+ *
+ * 4. Yahoo! Real Estate (Scraping) - Tertiary source
  *    - Moderate anti-bot measures
  *    - Good data quality
- * 
- * 4. SUUMO (Scraping) - Last resort
+ *
+ * 5. SUUMO (Scraping) - Last resort
  *    - Aggressive anti-bot
  *    - Largest database
  *    - Consider partnership instead
